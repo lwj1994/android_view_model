@@ -1,4 +1,4 @@
-package melu.viewmodel
+package milu.viewmodel
 
 /**
  * Metadata used to create and look up managed instances.

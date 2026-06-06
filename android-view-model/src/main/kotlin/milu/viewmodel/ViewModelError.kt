@@ -1,4 +1,4 @@
-package melu.viewmodel
+package milu.viewmodel
 
 /**
  * Expected failures reported by the ViewModel system.

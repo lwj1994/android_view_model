@@ -1,4 +1,4 @@
-package melu.viewmodel
+package milu.viewmodel
 
 import android.view.View
 import androidx.activity.ComponentActivity
@@ -80,18 +80,18 @@ public val Fragment.viewLifecycleViewModelBinding: ViewModelBinding
         val owner = viewLifecycleOwner
         val view = requireView()
         val binding = view.viewModelBinding
-        if (view.getTag(R.id.melu_view_model_binding_lifecycle_owner) !== owner) {
+        if (view.getTag(R.id.milu_view_model_binding_lifecycle_owner) !== owner) {
             binding.addPauseProvider(LifecyclePauseProvider(owner))
             owner.lifecycle.addObserver(
                 object : DefaultLifecycleObserver {
                     override fun onDestroy(owner: LifecycleOwner) {
                         binding.dispose()
-                        view.setTag(R.id.melu_view_model_binding, null)
-                        view.setTag(R.id.melu_view_model_binding_lifecycle_owner, null)
+                        view.setTag(R.id.milu_view_model_binding, null)
+                        view.setTag(R.id.milu_view_model_binding_lifecycle_owner, null)
                     }
                 },
             )
-            view.setTag(R.id.melu_view_model_binding_lifecycle_owner, owner)
+            view.setTag(R.id.milu_view_model_binding_lifecycle_owner, owner)
         }
         return binding
     }
@@ -103,20 +103,20 @@ public val Fragment.viewLifecycleViewModelBinding: ViewModelBinding
 public val View.viewModelBinding: ViewModelBinding
     get() {
         assertMainThread()
-        (getTag(R.id.melu_view_model_binding) as? ViewModelBinding)
+        (getTag(R.id.milu_view_model_binding) as? ViewModelBinding)
             ?.takeUnless { it.isDisposed }
             ?.let { return it }
 
         val binding = ViewModelBinding()
-        setTag(R.id.melu_view_model_binding, binding)
+        setTag(R.id.milu_view_model_binding, binding)
         addOnAttachStateChangeListener(
             object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) = Unit
 
                 override fun onViewDetachedFromWindow(v: View) {
                     binding.dispose()
-                    v.setTag(R.id.melu_view_model_binding, null)
-                    v.setTag(R.id.melu_view_model_binding_lifecycle_owner, null)
+                    v.setTag(R.id.milu_view_model_binding, null)
+                    v.setTag(R.id.milu_view_model_binding_lifecycle_owner, null)
                     v.removeOnAttachStateChangeListener(this)
                 }
             },

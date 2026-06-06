@@ -1,4 +1,4 @@
-package melu.viewmodel
+package milu.viewmodel
 
 import android.os.Looper
 import androidx.annotation.MainThread

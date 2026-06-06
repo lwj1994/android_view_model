@@ -1,8 +1,8 @@
-package melu.viewmodel.example
+package milu.viewmodel.example
 
 import android.app.Application
-import melu.viewmodel.ViewModel
-import melu.viewmodel.ViewModelConfig
+import milu.viewmodel.ViewModel
+import milu.viewmodel.ViewModelConfig
 
 class ExampleApplication : Application() {
     override fun onCreate() {

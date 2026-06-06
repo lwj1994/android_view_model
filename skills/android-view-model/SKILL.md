@@ -1,6 +1,6 @@
 ---
 name: android-view-model
-description: Triggered when using AndroidViewModel in Kotlin Android projects. Covers melu.viewmodel ViewModel / StateViewModel, ViewModelSpec declarations, ViewModelBinding, Compose bindings, Activity / Fragment / View / plain class integration, VM-to-VM DI, main-thread constraints, lifecycle disposal, and tests. Use when code imports melu.viewmodel or asks about this Android counterpart to apple_view_model.
+description: Triggered when using AndroidViewModel in Kotlin Android projects. Covers milu.viewmodel ViewModel / StateViewModel, ViewModelSpec declarations, ViewModelBinding, Compose bindings, Activity / Fragment / View / plain class integration, VM-to-VM DI, main-thread constraints, lifecycle disposal, and tests. Use when code imports milu.viewmodel or asks about this Android counterpart to apple_view_model.
 ---
 
 # AndroidViewModel Skill
@@ -13,7 +13,7 @@ It intentionally does **not** implement `ObserverValue` / `ObservableValue`.
 
 Activate when:
 
-- Code imports `melu.viewmodel.*`
+- Code imports `milu.viewmodel.*`
 - Code uses `ViewModel`, `StateViewModel`, `ViewModelSpec`, `viewModelSpec`, `ViewModelBinding`, `watchViewModel`, or `viewModelBinding`
 - The user asks about AndroidViewModel, an Android counterpart to AppleViewModel, shared ViewModel services, key/tag scoped DI, lifecycle disposal, or Compose/Fragment/Activity/View integration
 - The user reports lifecycle, sharing, main-thread, or Gradle setup issues involving this framework
@@ -27,7 +27,7 @@ Use this mental model:
 - `ViewModelSpec<VM>`: factory declaration. A non-null `key` shares the instance across bindings.
 - `ViewModelBinding`: scope/container held by Activity, Fragment, Compose, View, or a plain class.
 
-Business `melu.viewmodel.ViewModel` does **not** extend AndroidX `ViewModel`. AndroidX `ViewModel` is only used internally to retain `ViewModelBinding` for `ViewModelStoreOwner` hosts.
+Business `milu.viewmodel.ViewModel` does **not** extend AndroidX `ViewModel`. AndroidX `ViewModel` is only used internally to retain `ViewModelBinding` for `ViewModelStoreOwner` hosts.
 
 All public ViewModel APIs are main-thread only. Prefer APIs annotated with `@MainThread`, and do not mutate state from background threads.
 
@@ -189,7 +189,7 @@ Check for these when debugging:
 
 ## Pitfalls to Catch
 
-1. **Using AndroidX ViewModel as the business base**: use `melu.viewmodel.ViewModel` or `StateViewModel` instead.
+1. **Using AndroidX ViewModel as the business base**: use `milu.viewmodel.ViewModel` or `StateViewModel` instead.
 2. **Missing key on shared services**: unkeyed specs create a new instance per `watch/read` call.
 3. **Creating specs inside Composables or render methods**: prefer module-level specs so sharing and test proxies remain stable.
 4. **Forgetting to close plain-class scopes**: `ViewModelBindingScope` must be closed by the owner.

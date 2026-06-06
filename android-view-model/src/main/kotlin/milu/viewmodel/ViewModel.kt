@@ -1,4 +1,4 @@
-package melu.viewmodel
+package milu.viewmodel
 
 import androidx.annotation.MainThread
 import kotlinx.coroutines.CoroutineScope

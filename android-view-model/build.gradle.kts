@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "melu.viewmodel"
+    namespace = "milu.viewmodel"
     compileSdk = 36
 
     defaultConfig {

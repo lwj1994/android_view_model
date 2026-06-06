@@ -1,4 +1,4 @@
-package melu.viewmodel.example
+package milu.viewmodel.example
 
 import android.os.Bundle
 import android.view.View
@@ -26,12 +26,12 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentContainerView
 import androidx.fragment.app.FragmentActivity
-import melu.viewmodel.ViewModelBindingProvider
-import melu.viewmodel.activityViewModelBinding
-import melu.viewmodel.rememberRetainedViewModelBinding
-import melu.viewmodel.viewLifecycleViewModelBinding
-import melu.viewmodel.viewModelBinding
-import melu.viewmodel.watchViewModel
+import milu.viewmodel.ViewModelBindingProvider
+import milu.viewmodel.activityViewModelBinding
+import milu.viewmodel.rememberRetainedViewModelBinding
+import milu.viewmodel.viewLifecycleViewModelBinding
+import milu.viewmodel.viewModelBinding
+import milu.viewmodel.watchViewModel
 
 class MainActivity : FragmentActivity() {
     private val plainController = PlainCounterController()

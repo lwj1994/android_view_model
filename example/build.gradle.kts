@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "melu.viewmodel.example"
+    namespace = "milu.viewmodel.example"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "melu.viewmodel.example"
+        applicationId = "milu.viewmodel.example"
         minSdk = 23
         targetSdk = 36
         versionCode = 1

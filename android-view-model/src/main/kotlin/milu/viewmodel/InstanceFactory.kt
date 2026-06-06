@@ -1,4 +1,4 @@
-package melu.viewmodel
+package milu.viewmodel
 
 internal data class InstanceFactory<Value : Any>(
     val builder: (() -> Value)? = null,

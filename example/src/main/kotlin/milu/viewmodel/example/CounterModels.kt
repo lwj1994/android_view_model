@@ -1,8 +1,8 @@
-package melu.viewmodel.example
+package milu.viewmodel.example
 
-import melu.viewmodel.StateViewModel
-import melu.viewmodel.ViewModel
-import melu.viewmodel.viewModelSpec
+import milu.viewmodel.StateViewModel
+import milu.viewmodel.ViewModel
+import milu.viewmodel.viewModelSpec
 
 data class CounterState(
     val count: Int = 0,
@@ -47,7 +47,7 @@ val counterSpec = viewModelSpec(key = "counter") {
 }
 
 class PlainCounterController : AutoCloseable {
-    private val scope = melu.viewmodel.ViewModelBindingScope()
+    private val scope = milu.viewmodel.ViewModelBindingScope()
     private val counter = scope.viewModelBinding.read(counterSpec)
 
     fun incrementFromPlainClass() {

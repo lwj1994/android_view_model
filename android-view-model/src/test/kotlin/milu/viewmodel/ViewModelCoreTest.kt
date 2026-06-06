@@ -1,4 +1,4 @@
-package melu.viewmodel
+package milu.viewmodel
 
 import org.junit.After
 import org.junit.Assert.assertEquals

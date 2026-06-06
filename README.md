@@ -13,11 +13,69 @@ It keeps the core service model independent from any single Android host:
 
 ## Why not extend AndroidX ViewModel?
 
-The business `melu.viewmodel.ViewModel` intentionally does not extend AndroidX `ViewModel`.
+The business `milu.viewmodel.ViewModel` intentionally does not extend AndroidX `ViewModel`.
 
 AndroidX `ViewModel` is scoped to one `ViewModelStoreOwner`. This library needs a different lifecycle model: a keyed instance may be shared across multiple Activities, Fragments, Views, Compose scopes, and plain classes, and is disposed when the last `ViewModelBinding` releases its reference.
 
 AndroidX is still used at the host layer. `ViewModelStoreOwner.viewModelBinding` stores an internal AndroidX ViewModel whose only job is to retain and clear the `ViewModelBinding`.
+
+## Use From Git Source
+
+If you do not want to publish or consume this library from Maven, use Gradle source dependencies. Gradle will clone the GitHub repository, check out the requested branch or tag, and build `:android-view-model` locally.
+
+In your app's `settings.gradle.kts`:
+
+```kotlin
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+sourceControl {
+    gitRepository(uri("https://github.com/lwj1994/android_view_model.git")) {
+        producesModule("android_view_model:android-view-model")
+    }
+}
+```
+
+In your app module's `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    implementation("android_view_model:android-view-model") {
+        version {
+            branch = "main"
+        }
+    }
+}
+```
+
+For a stable dependency, prefer a Git tag once one exists:
+
+```kotlin
+dependencies {
+    implementation("android_view_model:android-view-model:v0.1.0")
+}
+```
+
+Make sure AndroidX is enabled in your app's `gradle.properties`:
+
+```properties
+android.useAndroidX=true
+```
+
+This avoids Maven for this library itself. `google()` and `mavenCentral()` are still required for Android Gradle Plugin, Kotlin, AndroidX, and Compose dependencies.
 
 ## Basic Usage
 
