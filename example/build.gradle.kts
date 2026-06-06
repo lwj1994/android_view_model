@@ -27,7 +27,11 @@ android {
 }
 
 dependencies {
-    implementation(project(":android-view-model"))
+    implementation("android_view_model:android-view-model") {
+        version {
+            branch = "main"
+        }
+    }
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.ui:ui:1.9.4")
     implementation("androidx.compose.foundation:foundation:1.9.4")

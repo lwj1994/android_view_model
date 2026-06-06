@@ -1,6 +1,6 @@
 # AndroidViewModel
 
-AndroidViewModel is a small ViewModel registry and DI layer inspired by `apple_view_model`.
+AndroidViewModel is a small ViewModel registry and DI layer.
 
 It keeps the core service model independent from any single Android host:
 
@@ -9,7 +9,6 @@ It keeps the core service model independent from any single Android host:
 - `ViewModelSpec` declares how to build a ViewModel and whether it is shared by `key`.
 - `ViewModelBinding` is the scoped container used by Activity, Fragment, Compose, View, or plain classes.
 
-`ObserverValue` / `ObservableValue` style APIs are intentionally not implemented.
 
 ## Why not extend AndroidX ViewModel?
 
@@ -69,11 +68,8 @@ dependencies {
 }
 ```
 
-Make sure AndroidX is enabled in your app's `gradle.properties`:
+When using Gradle source dependencies for Android builds, set `ANDROID_HOME` or `ANDROID_SDK_ROOT`. A root `local.properties` file is not visible to the Git checkout that Gradle builds as the dependency.
 
-```properties
-android.useAndroidX=true
-```
 
 This avoids Maven for this library itself. `google()` and `mavenCentral()` are still required for Android Gradle Plugin, Kotlin, AndroidX, and Compose dependencies.
 
