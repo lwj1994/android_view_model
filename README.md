@@ -9,6 +9,74 @@ It keeps the core service model independent from any single Android host:
 - `ViewModelSpec` declares how to build a ViewModel and whether it is shared by `key`.
 - `ViewModelBinding` is the scoped container used by Activity, Fragment, Compose, View, or plain classes.
 
+## Quick Start
+
+Add JitPack to your root `settings.gradle.kts`.
+
+```kotlin
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url = uri("https://jitpack.io")
+            content {
+                includeGroup("com.github.lwj1994")
+            }
+        }
+    }
+}
+```
+
+Add the dependency in your app or library module.
+
+```kotlin
+dependencies {
+    implementation("com.github.lwj1994:android_view_model:v0.1.1")
+}
+```
+
+Create a ViewModel and a spec.
+
+```kotlin
+import milu.viewmodel.StateViewModel
+import milu.viewmodel.viewModelSpec
+
+data class CounterState(val count: Int = 0)
+
+class CounterViewModel : StateViewModel<CounterState>(
+    initialState = CounterState(),
+    equals = { a, b -> a == b },
+) {
+    fun increment() {
+        setState(state.copy(count = state.count + 1))
+    }
+}
+
+val counterSpec = viewModelSpec(key = "counter") {
+    CounterViewModel()
+}
+```
+
+Bind it to the host you are using.
+
+```kotlin
+// Compose
+ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    val counter = watchViewModel(counterSpec)
+}
+
+// Activity
+val counter = viewModelBinding.watch(counterSpec)
+
+// Fragment view lifecycle
+val counter = viewLifecycleViewModelBinding.watch(counterSpec)
+
+// Plain class
+val scope = ViewModelBindingScope()
+val counter = scope.viewModelBinding.read(counterSpec)
+```
 
 ## Why not extend AndroidX ViewModel?
 
@@ -18,32 +86,11 @@ AndroidX `ViewModel` is scoped to one `ViewModelStoreOwner`. This library needs 
 
 AndroidX is still used at the host layer. `ViewModelStoreOwner.viewModelBinding` stores an internal AndroidX ViewModel whose only job is to retain and clear the `ViewModelBinding`.
 
-## Install From JitPack
-
-Add JitPack to your root `settings.gradle.kts`:
-
-```kotlin
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        google()
-        mavenCentral()
-        maven { url = uri("https://jitpack.io") }
-    }
-}
-```
-
-Then depend on the library:
-
-```kotlin
-dependencies {
-    implementation("com.github.lwj1994:android_view_model:v0.1.1")
-}
-```
-
 ## Use From Git Source
 
-If you do not want to publish or consume this library from Maven, use Gradle source dependencies. Gradle will clone the GitHub repository, check out the requested branch or tag, and build `:android-view-model` locally.
+JitPack is the recommended integration path. If you want Gradle to clone and build the GitHub source directly, use Gradle source dependencies instead.
+
+Gradle will clone the GitHub repository, check out the requested branch or tag, and build `:android-view-model` locally.
 
 In your app's `settings.gradle.kts`:
 
