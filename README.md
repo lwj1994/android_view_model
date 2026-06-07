@@ -33,11 +33,11 @@ dependencyResolutionManagement {
 }
 ```
 
-Then depend on the library module:
+Then depend on the library:
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994.android_view_model:android-view-model:v0.1.1")
+    implementation("com.github.lwj1994:android_view_model:v0.1.1")
 }
 ```
 
