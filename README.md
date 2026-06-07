@@ -18,6 +18,29 @@ AndroidX `ViewModel` is scoped to one `ViewModelStoreOwner`. This library needs 
 
 AndroidX is still used at the host layer. `ViewModelStoreOwner.viewModelBinding` stores an internal AndroidX ViewModel whose only job is to retain and clear the `ViewModelBinding`.
 
+## Install From JitPack
+
+Add JitPack to your root `settings.gradle.kts`:
+
+```kotlin
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+Then depend on the library module:
+
+```kotlin
+dependencies {
+    implementation("com.github.lwj1994.android_view_model:android-view-model:v0.1.1")
+}
+```
+
 ## Use From Git Source
 
 If you do not want to publish or consume this library from Maven, use Gradle source dependencies. Gradle will clone the GitHub repository, check out the requested branch or tag, and build `:android-view-model` locally.
@@ -64,7 +87,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:v0.1.0")
+    implementation("android_view_model:android-view-model:v0.1.1")
 }
 ```
 
