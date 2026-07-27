@@ -5,14 +5,12 @@ import kotlin.reflect.KClass
 
 internal class AutoDisposeInstanceController(
     private val binding: ViewModelBinding,
-    private val onRecreate: () -> Unit,
+    private val onHandleDisposing: () -> Unit,
     private val onInstanceAttached: ((InstanceHandle<*>, ViewModel) -> Unit)? = null,
     private val onInstanceDetached: ((InstanceHandle<*>, ViewModel) -> Unit)? = null,
-    private val onInstanceRecreated: ((InstanceHandle<*>, ViewModel, ViewModel) -> Unit)? = null,
 ) {
     private val trackedHandles = IdentityHashMap<InstanceHandle<*>, InstanceHandle<*>>()
     private val listenerDisposers = IdentityHashMap<InstanceHandle<*>, () -> Unit>()
-    private val trackedViewModels = IdentityHashMap<InstanceHandle<*>, ViewModel>()
     private var disposed = false
 
     fun <Value : Any> getInstance(
@@ -27,25 +25,20 @@ internal class AutoDisposeInstanceController(
         )
         val handle = InstanceManager.getHandle(type, factoryWithBinding)
         (handle.value as? ViewModel)?.refHandler?.addRef(binding)
-        attachRecreateListener(handle)
+        attachHandleListener(handle)
         return handle.requireInstance()
     }
 
     fun <Value : Any> getInstancesByTag(
         type: KClass<Value>,
         tag: Any,
-        observeRecreate: Boolean,
     ): List<Value> {
         val handles = InstanceManager.getHandlesByTag(tag, type)
         val result = mutableListOf<Value>()
         handles.forEach { handle ->
             handle.bind(binding.id)
             (handle.value as? ViewModel)?.refHandler?.addRef(binding)
-            if (observeRecreate) {
-                attachRecreateListener(handle)
-            } else {
-                trackedHandles[handle] = handle
-            }
+            attachHandleListener(handle)
             handle.value?.let { result += it }
         }
         return result
@@ -80,22 +73,20 @@ internal class AutoDisposeInstanceController(
         }
         trackedHandles.clear()
         listenerDisposers.clear()
-        trackedViewModels.clear()
     }
 
     private fun detachHandle(handle: InstanceHandle<*>) {
         listenerDisposers.remove(handle)?.invoke()
         trackedHandles.remove(handle)
-        trackedViewModels.remove(handle)
     }
 
     private fun detachViewModelRef(handle: InstanceHandle<*>) {
-        val viewModel = trackedViewModels[handle] ?: (handle.value as? ViewModel) ?: return
+        val viewModel = handle.value as? ViewModel ?: return
         if (!viewModel.isDisposed) viewModel.refHandler.removeRef(binding)
         onInstanceDetached?.invoke(handle, viewModel)
     }
 
-    private fun <Value : Any> attachRecreateListener(handle: InstanceHandle<Value>) {
+    private fun <Value : Any> attachHandleListener(handle: InstanceHandle<Value>) {
         if (disposed || listenerDisposers.containsKey(handle)) return
         val tracked = handle.value as? ViewModel
         if (tracked != null) {
@@ -106,36 +97,18 @@ internal class AutoDisposeInstanceController(
                 if (!handle.isDisposed) handle.unbind(binding.id)
                 throw error
             }
-            trackedViewModels[handle] = tracked
         }
         trackedHandles[handle] = handle
         listenerDisposers[handle] = handle.addListener { current ->
             try {
-                when (current.currentAction) {
-                    InstanceAction.Dispose -> {
-                        detachViewModelRef(current)
-                        detachHandle(current)
-                        if (!InstanceManager.isResetting) onRecreate()
-                    }
-                    InstanceAction.Recreate -> {
-                        val previous = trackedViewModels[current]
-                        val replacement = current.value as? ViewModel
-                        if (replacement != null) {
-                            replacement.refHandler.addRef(binding)
-                            trackedViewModels[current] = replacement
-                            if (previous != null && previous !== replacement) {
-                                onInstanceRecreated?.invoke(current, previous, replacement)
-                            }
-                        }
-                        if (!InstanceManager.isResetting) onRecreate()
-                    }
-                    null -> Unit
-                }
+                detachViewModelRef(current)
+                detachHandle(current)
+                if (!InstanceManager.isResetting) onHandleDisposing()
             } catch (error: Throwable) {
                 reportViewModelError(
                     error,
                     ErrorType.Listener,
-                    "AutoDisposeInstanceController recreate listener error",
+                    "AutoDisposeInstanceController handle listener error",
                 )
             }
         }

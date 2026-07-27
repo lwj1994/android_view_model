@@ -2,16 +2,10 @@ package milu.viewmodel
 
 import java.util.UUID
 
-internal enum class InstanceAction {
-    Dispose,
-    Recreate,
-}
-
 internal class InstanceHandle<Value : Any>(
     value: Value,
     val arg: InstanceArg,
     val index: Int,
-    val factory: () -> Value,
 ) {
     var value: Value? = value
         private set
@@ -20,14 +14,8 @@ internal class InstanceHandle<Value : Any>(
     private val directBindingSources = mutableMapOf<String, Any>()
     private val listeners = linkedMapOf<String, (InstanceHandle<Value>) -> Unit>()
     private var disposed = false
-    private var action: InstanceAction? = null
-    private var lastAction: InstanceAction? = null
-
     val isDisposed: Boolean
         get() = disposed
-
-    val currentAction: InstanceAction?
-        get() = action ?: if (disposed) lastAction else null
 
     val bindingIds: List<String>
         get() = bindingSources.keys.toList()
@@ -89,60 +77,6 @@ internal class InstanceHandle<Value : Any>(
         recycle(force = force)
     }
 
-    fun recreate(builder: (() -> Value)? = null): Value {
-        if (disposed) {
-            throw ViewModelError("Cannot recreate disposed instance.")
-        }
-        val previous = requireInstance()
-        val activeBindingIds = bindingSources.keys.toList()
-        val key = requireNotNull(arg.key)
-        val recreated = runInViewModelConstruction(
-            type = previous::class,
-            key = key,
-            isImplicit = key is ViewModelPrivateKey,
-            block = builder ?: factory,
-        )
-        if (!isActiveWith(previous)) abortInvalidatedRecreate(previous, recreated)
-        callInstanceDispose(previous)
-        if (!isActiveWith(previous)) abortInvalidatedRecreate(previous, recreated)
-        value = recreated
-        notifyCreate()
-        requireActiveRecreatedInstance(recreated)
-        activeBindingIds.forEach { bindingId ->
-            notifyBind(bindingId)
-            requireActiveRecreatedInstance(recreated)
-        }
-        action = InstanceAction.Recreate
-        lastAction = InstanceAction.Recreate
-        runInViewModelUpdateTransaction(::notifyListeners)
-        action = null
-        return recreated
-    }
-
-    private fun isActiveWith(expected: Value): Boolean = !disposed && value === expected
-
-    private fun abortInvalidatedRecreate(
-        previous: Value,
-        recreated: Value,
-    ): Nothing {
-        val replacementIsManaged = isActiveWith(recreated)
-        if (!replacementIsManaged && recreated !== previous) {
-            callInstanceDispose(recreated)
-        }
-        throw ViewModelError(
-            "Cannot recreate because its handle was disposed or replaced while the builder " +
-                "was running. The detached replacement was disposed and was not installed.",
-        )
-    }
-
-    private fun requireActiveRecreatedInstance(recreated: Value) {
-        if (isActiveWith(recreated)) return
-        throw ViewModelError(
-            "Cannot recreate because its handle was disposed or replaced while the " +
-                "replacement lifecycle was being initialized.",
-        )
-    }
-
     fun addListener(listener: (InstanceHandle<Value>) -> Unit): () -> Unit {
         val id = UUID.randomUUID().toString()
         listeners[id] = listener
@@ -151,10 +85,7 @@ internal class InstanceHandle<Value : Any>(
 
     private fun recycle(force: Boolean = false) {
         if (arg.aliveForever && !force) return
-        action = InstanceAction.Dispose
-        lastAction = InstanceAction.Dispose
         runInViewModelUpdateTransaction(::notifyListeners)
-        action = null
         onDispose()
     }
 

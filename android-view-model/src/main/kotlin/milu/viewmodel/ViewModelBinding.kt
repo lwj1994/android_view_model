@@ -52,10 +52,9 @@ public open class ViewModelBinding {
 
     private val instanceController = AutoDisposeInstanceController(
         binding = this,
-        onRecreate = ::handleInstanceChange,
+        onHandleDisposing = ::handleInstanceChange,
         onInstanceAttached = ::handleInstanceAttached,
         onInstanceDetached = ::handleInstanceDetached,
-        onInstanceRecreated = ::handleInstanceRecreated,
     )
 
     public val pauseController: PauseAwareController = makePauseController()
@@ -94,21 +93,6 @@ public open class ViewModelBinding {
             subscription.dispose()
             subscriptions.remove(subscription)
         }
-    }
-
-    internal open fun handleInstanceRecreated(
-        handle: InstanceHandle<*>,
-        previous: ViewModel,
-        current: ViewModel,
-    ) {
-        if (watchedViewModels.remove(previous)?.let { disposer ->
-                disposer()
-                true
-            } == true
-        ) {
-            addListener(current)
-        }
-        subscriptions.filter { it.isAttachedTo(previous) }.forEach { it.moveTo(current) }
     }
 
     public open fun onUpdate() {
@@ -150,7 +134,7 @@ public open class ViewModelBinding {
 
     /**
      * Primary resolution API. Resolves or creates from a stable spec/factory without subscribing
-     * to ViewModel notifications. Ownership and handle recreation/disposal observation remain.
+     * to ViewModel notifications. Ownership and handle disposal observation remain.
      */
     public fun <VM : ViewModel> read(factory: ViewModelFactory<VM>): VM =
         getViewModel(factory = factory, listen = false)
@@ -211,7 +195,7 @@ public open class ViewModelBinding {
         tag: Any,
     ): List<VM> {
         assertMainThread()
-        val vms = instanceController.getInstancesByTag(modelClass, tag, observeRecreate = true)
+        val vms = instanceController.getInstancesByTag(modelClass, tag)
         vms.forEach(::addListener)
         return vms
     }
@@ -230,7 +214,7 @@ public open class ViewModelBinding {
         tag: Any,
     ): List<VM> {
         assertMainThread()
-        return instanceController.getInstancesByTag(modelClass, tag, observeRecreate = true)
+        return instanceController.getInstancesByTag(modelClass, tag)
     }
 
     public fun <VM : ViewModel> listen(
@@ -264,22 +248,6 @@ public open class ViewModelBinding {
     public fun <VM : ViewModel> recycle(viewModel: VM) {
         assertMainThread()
         InstanceManager.recycle(viewModel)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    public fun <VM : ViewModel> recreate(
-        viewModel: VM,
-        builder: (() -> VM)? = null,
-    ): VM {
-        assertMainThread()
-        val owner = viewModel.refHandler.primaryOwner ?: this
-        return withBuilding(owner) {
-            InstanceManager.recreate(
-                viewModel,
-                viewModel::class as kotlin.reflect.KClass<VM>,
-                builder,
-            )
-        }
     }
 
     public fun addPauseProvider(provider: ViewModelBindingPauseProvider) {
@@ -405,19 +373,12 @@ public open class ViewModelBinding {
 }
 
 private class BindingSubscription(
-    viewModel: ViewModel,
-    private val attach: (ViewModel) -> (() -> Unit),
+    private val viewModel: ViewModel,
+    attach: (ViewModel) -> (() -> Unit),
 ) {
-    private var viewModel: ViewModel = viewModel
     private var disposer: (() -> Unit)? = attach(viewModel)
 
     fun isAttachedTo(value: ViewModel): Boolean = viewModel === value
-
-    fun moveTo(value: ViewModel) {
-        disposer?.invoke()
-        viewModel = value
-        disposer = attach(value)
-    }
 
     fun dispose() {
         disposer?.invoke()

@@ -20,7 +20,7 @@ skills/android-view-model/                          AI Skill
 ## 核心不变式
 
 1. 稳定 spec 的 `watch/read` 是主入口；两者都会创建/获取、bind，并观察 handle
-   recreate/dispose，只有 `watch` 监听 VM 自身通知。即使 spec 带 key/tag，也继续
+   disposal，只有 `watch` 监听 VM 自身通知。即使 spec 带 key/tag，也继续
    传 spec；cached API 只查询其他路径已创建的实例，是高级 escape hatch，不能与
    主入口并列推荐。README、Skill、示例与公开 API 注释都必须保持这个优先级。
 2. identity 是解析 ViewModel 类型 + effective key。无 key 时，同一 binding 内
@@ -31,12 +31,14 @@ skills/android-view-model/                          AI Skill
    仍可强制销毁。
 4. 每个 parent generation 延迟拥有稳定 dependency binding。它保活已解析 child、
    实时传播 root owners；direct 与多个 parent 路径按 source 独立释放。
-5. 嵌套 ViewModel 与 host 中可能经历 recycle/recreate 的 ViewModel 必须通过
+5. 嵌套 ViewModel 与 host 中可能经历 recycle 的 ViewModel 必须通过
    resolver property 获取，不得使用 `by lazy`/stored reference 长期缓存。
 6. ViewModel 内 `read` 不冒泡 child 自身通知；`watch` 先调用
    `parent.onDependencyNotify(child)` 再通知 parent。同步 graph 按 binding 去重。
-7. `recycle` 是全局破坏性 escape hatch；`recreate` 保留 owner 与 binding-owned
-   watch/listen subscription。
+7. 不提供原位替换实例的 `recreate` API。需要独立新实例时使用显式新 key；若明确
+   接受影响所有 owners，则先全局 `recycle`，再由 resolver getter 通过
+   `watch/read(spec)` 走正常 cache-miss 路径创建新 handle 与 dependency tree，
+   不迁移旧对象关系。
 8. 所有公开 ViewModel API 都只能在主线程调用；业务 ViewModel 不继承 AndroidX
    `ViewModel`，AndroidX 只用于 host retention。
 
@@ -56,7 +58,8 @@ skills/android-view-model/                          AI Skill
 ```bash
 ./gradlew :android-view-model:testDebugUnitTest \
   :android-view-model:assembleDebug \
-  :android-view-model:lintDebug
+  :android-view-model:lintDebug \
+  --no-parallel --max-workers=1
 ```
 
 不要给验证命令添加 `--parallel`。

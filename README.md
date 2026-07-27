@@ -23,10 +23,10 @@ Instance identity is the resolved ViewModel type plus its effective key. An unke
 > knowing cache identity is not a reason to bypass the spec.
 
 - Keep specs stable and module-level. Use `watch(spec)` or `read(spec)` as the primary entry points in Compose, host classes, tests, and ViewModel-to-ViewModel dependencies.
-- `watch` and `read` both create or reuse an instance, establish lifecycle ownership, and observe handle recreation/disposal. Only `watch` listens to the ViewModel's own `notifyListeners()`.
+- `watch` and `read` both create or reuse an instance, establish lifecycle ownership, and observe handle disposal, including force-recycle. Only `watch` listens to the ViewModel's own `notifyListeners()`.
 - Prefer binding-managed modules over global singletons. A normal feature, service, repository, or coordinator should use an unkeyed spec with `aliveForever = false`.
 - Cached APIs are advanced lookup-only escape hatches. They cannot create a missing instance and should not replace spec-based dependency resolution.
-- Resolve ViewModels through resolver properties instead of `by lazy` or stored references so explicit recycle/recreate and asynchronous lifecycle changes can return the current generation.
+- Resolve ViewModels through resolver properties instead of `by lazy` or stored references so explicit recycle and asynchronous lifecycle changes can return the current generation.
 
 ## Quick Start
 
@@ -52,7 +52,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:v0.2.2")
+    implementation("com.github.lwj1994:android_view_model:v0.3.0")
 }
 ```
 
@@ -160,7 +160,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:v0.2.2")
+    implementation("android_view_model:android-view-model:v0.3.0")
 }
 ```
 
@@ -250,7 +250,7 @@ class CounterController : AutoCloseable {
 
 Normal application code should keep a stable spec and use one of these APIs:
 
-| API | Creates if absent? | Establishes ownership? | VM `notifyListeners()` | Handle recreate/dispose |
+| API | Creates if absent? | Establishes ownership? | VM `notifyListeners()` | Handle disposal |
 |---|---:|---:|---:|---:|
 | `watch(spec)` | Yes | Yes | Yes | Yes |
 | `read(spec)` | Yes | Yes | No | Yes |
@@ -267,7 +267,7 @@ Choose `watch` when ViewModel notifications should update the owner. Choose
 > owner's lifecycle, and cannot create a missing dependency. Use it only for an
 > intentional cross-owner query of an existing cache entry.
 
-| API | Creates if absent? | Establishes ownership? | VM `notifyListeners()` | Handle recreate/dispose |
+| API | Creates if absent? | Establishes ownership? | VM `notifyListeners()` | Handle disposal |
 |---|---:|---:|---:|---:|
 | `watchCached<T>(key/tag)` | No | Yes | Yes | Yes |
 | `readCached<T>(key/tag)` | No | Yes | No | Yes |
@@ -280,11 +280,11 @@ Single-result non-`maybe` lookups throw on a miss, and tag lookup can be
 ambiguous when several instances share a tag. If the caller has a spec—even a
 keyed or tagged spec—use `watch(spec)` / `read(spec)` instead.
 
-`listen`, `listenState`, and `listenStateSelect` resolve through `read`, are automatically removed when the binding disposes, and move to the replacement during `recreate`. Do not put a `listen` call in a repeatedly evaluated resolver property.
+`listen`, `listenState`, and `listenStateSelect` resolve through `read` and are automatically removed when the target handle or binding disposes. They are not migrated to another object. Do not put a `listen` call in a repeatedly evaluated resolver property.
 
 ## ViewModel-to-ViewModel dependencies
 
-Expose nested ViewModels through resolver properties. Do not retain a child in a stored property or ad-hoc cache: explicit `recycle`, parent recreation, or an asynchronous lifecycle race must allow the next access to resolve the replacement.
+Expose nested ViewModels through resolver properties. Do not retain a child in a stored property or ad-hoc cache: explicit `recycle` or an asynchronous lifecycle race must allow the next access to resolve the current generation.
 
 ```kotlin
 val sessionSpec = viewModelSpec { SessionViewModel() }
@@ -307,12 +307,13 @@ Getter declarations create nothing by themselves. After a child is resolved, the
 
 ## Lifecycle controls
 
-- `recreate(vm)` replaces the managed object while preserving active owner paths and moving binding-owned watch/listen subscriptions.
 - `recycle(vm)` is a destructive global escape hatch. It removes every owner and disposes the shared object, including `aliveForever` instances.
 
-After either operation, access ViewModels through resolver properties; a stored reference can keep pointing at the disposed object.
+There is no in-place instance replacement API. To obtain an independent instance, use a new explicit key. If replacing the shared cached generation globally is intentional, call `recycle(vm)` and let resolver properties call `watch(spec)` / `read(spec)` again. The cache miss creates a new handle and dependency tree; owner paths, watch/listen subscriptions, and dependency edges are not migrated from the disposed object.
 
-Construction and dependency graphs are checked. Recursive construction and runtime ownership cycles throw `ViewModelError`; a failed build rolls back children created by that dependency scope. Reset-invalidated recreation disposes the detached replacement instead of installing it into a dead handle.
+After `recycle`, access ViewModels through resolver properties; a stored reference keeps pointing at the disposed object.
+
+Construction and dependency graphs are checked. Recursive construction and runtime ownership cycles throw `ViewModelError`; a failed build rolls back children created by that dependency scope.
 
 ## State and fine-grained observation
 
@@ -378,5 +379,5 @@ Build it with:
 Run tests with:
 
 ```bash
-./gradlew :android-view-model:testDebugUnitTest
+./gradlew :android-view-model:testDebugUnitTest --no-parallel --max-workers=1
 ```

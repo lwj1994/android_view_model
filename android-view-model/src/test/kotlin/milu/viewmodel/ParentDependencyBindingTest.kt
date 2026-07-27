@@ -136,39 +136,6 @@ class ParentDependencyBindingTest {
     }
 
     @Test
-    fun recreatingParent_startsANewPrivateChildGeneration() {
-        val owner = CountingBinding()
-        val parent = owner.watch(parentSpec)
-        val child = parent.child
-        owner.updates = 0
-
-        val recreated = owner.recreate(parent)
-
-        assertTrue(parent.isDisposed)
-        assertTrue(child.isDisposed)
-        assertThrows(ViewModelError::class.java) { parent.child }
-        assertNotSame(parent, recreated)
-        assertNotSame(child, recreated.child)
-        assertEquals(1, owner.updates)
-        owner.dispose()
-    }
-
-    @Test
-    fun recreatingChild_movesParentListenSubscription() {
-        val owner = CountingBinding()
-        val parent = owner.watch(parentSpec)
-        val child = parent.child
-        parent.listenToChild()
-
-        val recreated = owner.recreate(child)
-        recreated.emit()
-
-        assertSame(recreated, parent.child)
-        assertEquals(1, parent.listenCallbacks)
-        owner.dispose()
-    }
-
-    @Test
     fun aliveForever_requiresExplicitKeyAtRootAndNestedResolutions() {
         val root = ViewModelBinding()
         val rootError = assertThrows(ViewModelError::class.java) {
@@ -267,24 +234,6 @@ class ParentDependencyBindingTest {
         assertTrue(b.isDisposed)
     }
 
-    @Test
-    fun resetInsideRecreate_disposesDetachedReplacement() {
-        val owner = ViewModelBinding()
-        val original = owner.read(sharedChildSpec)
-        var replacement: ChildViewModel? = null
-
-        assertThrows(ViewModelError::class.java) {
-            owner.recreate(original) {
-                InstanceManager.debugReset()
-                ChildViewModel().also { replacement = it }
-            }
-        }
-
-        assertTrue(original.isDisposed)
-        assertTrue(replacement!!.isDisposed)
-        assertEquals(0, InstanceManager.debugStoreCount)
-        owner.dispose()
-    }
 }
 
 private open class ChildViewModel : ViewModel() {

@@ -38,7 +38,7 @@ Use this skill when:
 2. Resolve that spec with `watch(spec)` when ViewModel notifications should
    update the owner, or `read(spec)` when lifecycle-bound access should not
    listen to the ViewModel's own notifications. Both APIs create/reuse, bind,
-   and observe handle recreation/disposal.
+   and observe handle disposal, including force-recycle.
 3. Use a cached API only when the task explicitly requires an advanced
    cross-owner query of an instance already created elsewhere. Cached APIs
    cannot create a missing dependency and must not be suggested as normal DI.
@@ -113,7 +113,7 @@ arguments are intended to share.
 | Plain class / tests | `ViewModelBindingScope()` or `ViewModelBinding()` | Caller must close/dispose. |
 
 Use resolver properties instead of `by lazy` or stored references when an
-explicit global recycle/recreate can occur:
+explicit global recycle can occur:
 
 ```kotlin
 class MainActivity : FragmentActivity() {
@@ -124,7 +124,7 @@ class MainActivity : FragmentActivity() {
 
 ## Primary binding APIs (recommended)
 
-| API | Creates? | Owns on hit? | VM notifications | Handle recreate/dispose |
+| API | Creates? | Owns on hit? | VM notifications | Handle disposal |
 | --- | ---: | ---: | ---: | ---: |
 | `watch(spec)` | Yes | Yes | Yes | Yes |
 | `read(spec)` | Yes | Yes | No | Yes |
@@ -136,7 +136,7 @@ another path's creation order, cache identity, and lifecycle, and cannot create
 a missing dependency. Show them only for an intentional query of existing
 cross-owner state.
 
-| API | Creates? | Owns on hit? | VM notifications | Handle recreate/dispose |
+| API | Creates? | Owns on hit? | VM notifications | Handle disposal |
 | --- | ---: | ---: | ---: | ---: |
 | `watchCached<T>(key/tag)` | No | Yes | Yes | Yes |
 | `readCached<T>(key/tag)` | No | Yes | No | Yes |
@@ -150,9 +150,9 @@ can be ambiguous and depends on cache creation order; use the batch API when a
 tag may match several instances.
 
 `listen`, `listenState`, and `listenStateSelect` are binding-owned side effects.
-They resolve through `read`, are removed on binding disposal, and migrate to a
-replacement during `recreate`. Never place a `listen` call in a repeatedly
-evaluated resolver property.
+They resolve through `read` and are removed when the target handle or binding is
+disposed. They are never migrated to another object. Never place a `listen` call
+in a repeatedly evaluated resolver property.
 
 ## Response pattern for implementation requests
 
@@ -201,13 +201,14 @@ class CheckoutViewModel : ViewModel() {
 - Routine cleanup is binding-driven; do not call lifecycle hooks directly.
 - `recycle(vm)` is a destructive global escape hatch. It removes every owner
   path and force-disposes the managed object, including `aliveForever`.
-- `recreate(vm, builder)` replaces an object while preserving active owner
-  relationships and binding-owned subscriptions.
-- Always re-resolve through a property after either operation; a stored
-  reference may point to a disposed generation.
+- There is no in-place replacement capability. Use a new explicit key for an
+  independent instance. If global replacement is intentional, call `recycle`
+  and let getter-based `watch(spec)` / `read(spec)` create a new handle and
+  dependency tree on the next access; do not migrate old relationships.
+- Always re-resolve through a property after `recycle`; a stored reference
+  points to the disposed generation.
 - Recursive construction and runtime ownership cycles throw `ViewModelError`.
-  A failed build rolls back children created by its dependency scope, and a
-  reset-invalidated recreation disposes the detached replacement.
+  A failed build rolls back children created by its dependency scope.
 
 Lifecycle hooks are `onCreate`, `onBind`, `onUnbind`, and `onDispose`. Register
 owned resources with `addDispose` and let the framework invoke cleanup.
@@ -230,7 +231,7 @@ owned resources with `addDispose` and let the framework invoke cleanup.
 ## Main-thread and host rules
 
 - Construct and use ViewModels on the main thread.
-- Call `setState`, `notifyListeners`, `watch`, `read`, `recreate`, `recycle`,
+- Call `setState`, `notifyListeners`, `watch`, `read`, `recycle`,
   and `dispose` on the main thread.
 - Use `viewModelScope` for asynchronous work and return to
   `Dispatchers.Main.immediate` before mutating state.

@@ -107,17 +107,3 @@ public fun <State, VM : StateViewModel<State>> watchViewModelState(
 ): State {
     return watchViewModel(factory, binding, *keys).state
 }
-
-/**
- * Spec-based builder for normal Compose usage.
- */
-@Composable
-@MainThread
-public fun <VM : ViewModel> ViewModelBuilder(
-    factory: ViewModelFactory<VM>,
-    binding: ViewModelBinding = currentViewModelBinding(),
-    vararg keys: Any?,
-    content: @Composable (VM) -> Unit,
-) {
-    content(watchViewModel(factory, binding, *keys))
-}

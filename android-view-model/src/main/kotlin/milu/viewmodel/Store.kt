@@ -65,7 +65,6 @@ internal class Store<Value : Any>(
                 value = instance,
                 arg = arg,
                 index = nextIndex++,
-                factory = builder,
             )
         }
         if (disposed) {
@@ -77,26 +76,13 @@ internal class Store<Value : Any>(
         }
         handles[realKey] = created
 
-        created.addListener { handle ->
-            if (handle.currentAction != InstanceAction.Dispose) return@addListener
+        created.addListener {
             handles.remove(realKey)
             if (handles.isEmpty()) {
                 onStoreEmpty?.invoke()
             }
         }
         return created
-    }
-
-    fun recreate(
-        target: Value,
-        builder: (() -> Value)? = null,
-    ): Value {
-        if (disposed) {
-            throw ViewModelError("Store has been disposed.")
-        }
-        val handle = handles.values.firstOrNull { it.value === target }
-            ?: throw ViewModelError("Cannot recreate instance. Instance not found in store.")
-        return handle.recreate(builder)
     }
 
     fun tryRecycle(instance: Any): Boolean {

@@ -76,15 +76,6 @@ public object InstanceManager {
         return store(type).instancesByTag(tag)
     }
 
-    internal fun <Value : Any> recreate(
-        value: Value,
-        type: KClass<Value>,
-        builder: (() -> Value)? = null,
-    ): Value {
-        requireNotResetting()
-        return store(type).recreate(value, builder)
-    }
-
     internal fun recycle(value: Any) {
         assertMainThread()
         requireNotResetting()

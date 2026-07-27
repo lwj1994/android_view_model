@@ -42,23 +42,12 @@ internal class ViewModelDependencyBinding(
         notifyDependency(viewModel)
     }
 
-    override fun handleInstanceRecreated(
-        handle: InstanceHandle<*>,
-        previous: ViewModel,
-        current: ViewModel,
-    ) {
-        super.handleInstanceRecreated(handle, previous, current)
-        dependencies[handle] = current
-        propagatedOwners.forEach { owner -> attachOwner(handle, current, owner) }
-        notifyDependency(current)
-    }
-
     override fun onViewModelUpdate(viewModel: ViewModel) {
         onDependencyUpdate(viewModel)
     }
 
     override fun onUpdate() {
-        // Handle disposal/recreation is forwarded by the source-aware hooks.
+        // Handle disposal is forwarded by the source-aware hooks.
     }
 
     override fun dispose() {
