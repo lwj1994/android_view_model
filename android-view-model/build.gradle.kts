@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "io.github.lwj1994"
-version = "0.1.1"
+version = "0.2.0"
 
 val isJitPack = providers.environmentVariable("JITPACK")
     .map { it.equals("true", ignoreCase = true) }
@@ -20,7 +20,7 @@ val publishedGroupId = if (isJitPack) {
 val publishedVersion = if (isJitPack) {
     providers.environmentVariable("VERSION").get()
 } else {
-    "0.1.1"
+    "0.2.0"
 }
 
 val isPublishingToMavenCentral = gradle.startParameter.taskNames.any { taskName ->
@@ -65,6 +65,12 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
 
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    // 全局 registry/config/lifecycle/spec proxy 会在用例间 reset，必须单 fork 顺序执行。
+    maxParallelForks = 1
+    systemProperty("junit.jupiter.execution.parallel.enabled", "false")
+}
+
 mavenPublishing {
     publishToMavenCentral()
     if (isPublishingToMavenCentral) {
@@ -79,7 +85,7 @@ mavenPublishing {
 
     pom {
         name.set("AndroidViewModel")
-        description.set("A small ViewModel registry and DI layer for Android.")
+        description.set("A ViewModel registry, functional-module composition, and DI layer for Android.")
         inceptionYear.set("2026")
         url.set("https://github.com/lwj1994/android_view_model")
 

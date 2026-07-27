@@ -1,6 +1,7 @@
 package milu.viewmodel
 
 import androidx.annotation.MainThread
+import java.util.IdentityHashMap
 import java.util.UUID
 
 /**
@@ -35,20 +36,26 @@ public open class ViewModelBinding {
 
     public val id: String = "Binding#${UUID.randomUUID()}"
 
+    internal open val isDependencyBinding: Boolean = false
+
     public var isDisposed: Boolean = false
         private set
 
     public val isPaused: Boolean
         get() = pauseController.isPaused
 
-    private val watchedViewModels = linkedSetOf<ViewModel>()
+    private val watchedViewModels = IdentityHashMap<ViewModel, () -> Unit>()
     private val disposes = mutableListOf<() -> Unit>()
+    private val subscriptions = mutableListOf<BindingSubscription>()
     private val updateListeners = linkedMapOf<String, () -> Unit>()
     private var hasMissedUpdates = false
 
     private val instanceController = AutoDisposeInstanceController(
         binding = this,
-        onRecreate = { onUpdate() },
+        onRecreate = ::handleInstanceChange,
+        onInstanceAttached = ::handleInstanceAttached,
+        onInstanceDetached = ::handleInstanceDetached,
+        onInstanceRecreated = ::handleInstanceRecreated,
     )
 
     public val pauseController: PauseAwareController = makePauseController()
@@ -68,6 +75,41 @@ public open class ViewModelBinding {
         onPause = { onPause() },
         onResume = { onResume() },
     )
+
+    private fun handleInstanceChange() {
+        if (markViewModelBindingUpdated(this)) onUpdate()
+    }
+
+    internal open fun handleInstanceAttached(
+        handle: InstanceHandle<*>,
+        viewModel: ViewModel,
+    ) {}
+
+    internal open fun handleInstanceDetached(
+        handle: InstanceHandle<*>,
+        viewModel: ViewModel,
+    ) {
+        watchedViewModels.remove(viewModel)?.invoke()
+        subscriptions.filter { it.isAttachedTo(viewModel) }.toList().forEach { subscription ->
+            subscription.dispose()
+            subscriptions.remove(subscription)
+        }
+    }
+
+    internal open fun handleInstanceRecreated(
+        handle: InstanceHandle<*>,
+        previous: ViewModel,
+        current: ViewModel,
+    ) {
+        if (watchedViewModels.remove(previous)?.let { disposer ->
+                disposer()
+                true
+            } == true
+        ) {
+            addListener(current)
+        }
+        subscriptions.filter { it.isAttachedTo(previous) }.forEach { it.moveTo(current) }
+    }
 
     public open fun onUpdate() {
         assertMainThread()
@@ -167,7 +209,7 @@ public open class ViewModelBinding {
     ) {
         assertMainThread()
         val vm = read(factory)
-        disposes += vm.listen(onChanged)
+        addSubscription(vm) { it.listen(onChanged) }
     }
 
     public fun <S, VM : StateViewModel<S>> listenState(
@@ -176,7 +218,7 @@ public open class ViewModelBinding {
     ) {
         assertMainThread()
         val vm = read(factory)
-        disposes += vm.listenState(onChanged)
+        addSubscription(vm) { it.listenState(onChanged) }
     }
 
     public fun <S, R, VM : StateViewModel<S>> listenStateSelect(
@@ -186,13 +228,28 @@ public open class ViewModelBinding {
     ) {
         assertMainThread()
         val vm = read(factory)
-        disposes += vm.listenStateSelect(selector, onChanged)
+        addSubscription(vm) { it.listenStateSelect(selector, onChanged) }
     }
 
     public fun <VM : ViewModel> recycle(viewModel: VM) {
         assertMainThread()
-        instanceController.recycle(viewModel)
-        onUpdate()
+        InstanceManager.recycle(viewModel)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    public fun <VM : ViewModel> recreate(
+        viewModel: VM,
+        builder: (() -> VM)? = null,
+    ): VM {
+        assertMainThread()
+        val owner = viewModel.refHandler.primaryOwner ?: this
+        return withBuilding(owner) {
+            InstanceManager.recreate(
+                viewModel,
+                viewModel::class as kotlin.reflect.KClass<VM>,
+                builder,
+            )
+        }
     }
 
     public fun addPauseProvider(provider: ViewModelBindingPauseProvider) {
@@ -209,7 +266,12 @@ public open class ViewModelBinding {
         assertMainThread()
         if (isDisposed) return
         isDisposed = true
+        watchedViewModels.values.toList().forEach { disposer ->
+            runCatching(disposer)
+        }
         watchedViewModels.clear()
+        subscriptions.toList().forEach(BindingSubscription::dispose)
+        subscriptions.clear()
         disposes.toList().forEach { disposer ->
             try {
                 disposer()
@@ -234,22 +296,27 @@ public open class ViewModelBinding {
     ): VM {
         assertMainThread()
         check(!isDisposed) { "Cannot get ${factory.modelClass.qualifiedName}: binding is disposed." }
-        val key = factory.key() ?: UUID.randomUUID().toString()
+        val configuredKey = factory.key()
+        val aliveForever = factory.aliveForever()
+        if (isDependencyBinding && configuredKey == null && aliveForever) {
+            throw ViewModelError(
+                "An aliveForever ViewModel resolved from another ViewModel must use " +
+                    "an explicit key. A parent-private default key becomes unreachable " +
+                    "after that parent generation is disposed.",
+            )
+        }
+        val key = configuredKey ?: defaultViewModelKey
         val instanceFactory = InstanceFactory(
-            builder = {
-                withBuilding(this) {
-                    val vm = factory.build()
-                    vm.refHandler.addRef(this)
-                    vm
-                }
-            },
+            builder = factory::build,
             arg = InstanceArg(
                 key = key,
                 tag = factory.tag(),
-                aliveForever = factory.aliveForever(),
+                aliveForever = aliveForever,
             ),
         )
-        val vm = instanceController.getInstance(factory.modelClass, instanceFactory)
+        val vm = withBuilding(this) {
+            instanceController.getInstance(factory.modelClass, instanceFactory)
+        }
         if (listen) addListener(vm)
         return vm
     }
@@ -272,7 +339,7 @@ public open class ViewModelBinding {
 
     private fun addListener(vm: ViewModel) {
         assertMainThread()
-        if (!watchedViewModels.add(vm)) return
+        if (watchedViewModels.containsKey(vm)) return
         val disposer = vm.listen {
             if (isDisposed) return@listen
             if (pauseController.isPaused) {
@@ -280,8 +347,50 @@ public open class ViewModelBinding {
                 viewModelLog { "${this::class.qualifiedName} paused, delay update" }
                 return@listen
             }
-            onUpdate()
+            if (markViewModelBindingUpdated(this)) {
+                onViewModelUpdate(vm)
+            }
         }
-        disposes += disposer
+        watchedViewModels[vm] = disposer
+    }
+
+    private fun <VM : ViewModel> addSubscription(
+        viewModel: VM,
+        attach: (VM) -> (() -> Unit),
+    ) {
+        subscriptions += BindingSubscription(
+            viewModel = viewModel,
+            attach = { value ->
+                @Suppress("UNCHECKED_CAST")
+                attach(value as VM)
+            },
+        )
+    }
+
+    protected open fun onViewModelUpdate(viewModel: ViewModel) {
+        onUpdate()
+    }
+
+    private val defaultViewModelKey = ViewModelPrivateKey()
+}
+
+private class BindingSubscription(
+    viewModel: ViewModel,
+    private val attach: (ViewModel) -> (() -> Unit),
+) {
+    private var viewModel: ViewModel = viewModel
+    private var disposer: (() -> Unit)? = attach(viewModel)
+
+    fun isAttachedTo(value: ViewModel): Boolean = viewModel === value
+
+    fun moveTo(value: ViewModel) {
+        disposer?.invoke()
+        viewModel = value
+        disposer = attach(value)
+    }
+
+    fun dispose() {
+        disposer?.invoke()
+        disposer = null
     }
 }

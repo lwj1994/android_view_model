@@ -101,10 +101,25 @@ public open class ViewModel(
     public val refHandler: ViewModelBindingHandler = ViewModelBindingHandler()
 
     public open val viewModelBinding: ViewModelBinding
-        get() = refHandler.binding
+        get() {
+            if (isDisposed) {
+                throw ViewModelError(
+                    "Cannot resolve dependencies from a disposed ${this::class.qualifiedName}.",
+                )
+            }
+            return dependencyBinding ?: ViewModelDependencyBinding(
+                parent = this,
+                parentHandler = refHandler,
+                onDependencyUpdate = ::handleDependencyUpdate,
+            ).also { dependencyBinding = it }
+        }
 
     private val listeners = linkedMapOf<String, () -> Unit>()
     private val autoDispose = AutoDisposeController()
+    private var dependencyBinding: ViewModelDependencyBinding? = null
+
+    internal val dependencyBindingIfCreated: ViewModelDependencyBinding?
+        get() = dependencyBinding
 
     public fun listen(onChanged: () -> Unit): () -> Unit {
         assertMainThread()
@@ -119,14 +134,25 @@ public open class ViewModel(
             viewModelLog { "${this::class.qualifiedName}: notifyListeners after disposed" }
             return
         }
-        val snapshot = listeners.values.toList()
-        snapshot.forEach { listener ->
-            try {
-                listener()
-            } catch (error: Throwable) {
-                reportViewModelError(error, ErrorType.Listener, "notifyListeners error")
+        runInViewModelUpdateTransaction {
+            val snapshot = listeners.values.toList()
+            snapshot.forEach { listener ->
+                try {
+                    listener()
+                } catch (error: Throwable) {
+                    reportViewModelError(error, ErrorType.Listener, "notifyListeners error")
+                }
             }
         }
+    }
+
+    /** Called before a watched child notification is forwarded through this ViewModel. */
+    protected open fun onDependencyNotify(viewModel: ViewModel) {}
+
+    private fun handleDependencyUpdate(viewModel: ViewModel) {
+        if (isDisposed) return
+        onDependencyNotify(viewModel)
+        notifyListeners()
     }
 
     public fun update(block: () -> Unit) {
@@ -193,6 +219,7 @@ public open class ViewModel(
         if (isDisposed) return
         isDisposed = true
         autoDispose.dispose()
+        dependencyBinding?.dispose()
         refHandler.dispose()
         viewModelScope.cancel()
         try {

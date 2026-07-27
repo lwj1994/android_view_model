@@ -16,7 +16,8 @@ internal class InstanceHandle<Value : Any>(
     var value: Value? = value
         private set
 
-    private val bindingIds = linkedSetOf<String>()
+    private val bindingSources = linkedMapOf<String, MutableSet<Any>>()
+    private val directBindingSources = mutableMapOf<String, Any>()
     private val listeners = linkedMapOf<String, (InstanceHandle<Value>) -> Unit>()
     private var disposed = false
     private var action: InstanceAction? = null
@@ -28,6 +29,9 @@ internal class InstanceHandle<Value : Any>(
     val currentAction: InstanceAction?
         get() = action ?: if (disposed) lastAction else null
 
+    val bindingIds: List<String>
+        get() = bindingSources.keys.toList()
+
     init {
         notifyCreate()
         bind(arg.bindingId)
@@ -37,18 +41,40 @@ internal class InstanceHandle<Value : Any>(
         "Cannot access ${arg.key} instance after disposal.",
     )
 
-    fun contains(bindingId: String): Boolean = bindingIds.contains(bindingId)
+    fun contains(bindingId: String): Boolean = bindingSources.containsKey(bindingId)
 
     fun bind(id: String?) {
-        if (id == null || disposed || bindingIds.contains(id)) return
-        bindingIds += id
-        notifyBind(id)
+        if (id == null || disposed) return
+        val source = directBindingSources.getOrPut(id) { Any() }
+        bindFrom(id, source)
+    }
+
+    fun bindFrom(
+        id: String?,
+        source: Any,
+    ) {
+        if (id == null || disposed) return
+        val sources = bindingSources.getOrPut(id) { identitySet() }
+        if (!sources.add(source)) return
+        if (sources.size == 1) notifyBind(id)
     }
 
     fun unbind(id: String) {
-        if (disposed || !bindingIds.remove(id)) return
+        val source = directBindingSources.remove(id) ?: return
+        unbindFrom(id, source)
+    }
+
+    fun unbindFrom(
+        id: String,
+        source: Any,
+    ) {
+        if (disposed) return
+        val sources = bindingSources[id] ?: return
+        if (!sources.remove(source)) return
+        if (sources.isNotEmpty()) return
+        bindingSources.remove(id)
         notifyUnbind(id)
-        if (bindingIds.isEmpty()) {
+        if (bindingSources.isEmpty()) {
             recycle()
         }
     }
@@ -56,8 +82,9 @@ internal class InstanceHandle<Value : Any>(
     fun unbindAll(force: Boolean = false) {
         if (disposed) return
         if (arg.aliveForever && !force) return
-        val snapshot = bindingIds.toList()
-        bindingIds.clear()
+        val snapshot = bindingSources.keys.toList()
+        bindingSources.clear()
+        directBindingSources.clear()
         snapshot.forEach(::notifyUnbind)
         recycle(force = force)
     }
@@ -67,17 +94,53 @@ internal class InstanceHandle<Value : Any>(
             throw ViewModelError("Cannot recreate disposed instance.")
         }
         val previous = requireInstance()
-        val activeBindingIds = bindingIds.toList()
-        val recreated = (builder ?: factory)()
+        val activeBindingIds = bindingSources.keys.toList()
+        val key = requireNotNull(arg.key)
+        val recreated = runInViewModelConstruction(
+            type = previous::class,
+            key = key,
+            isImplicit = key is ViewModelPrivateKey,
+            block = builder ?: factory,
+        )
+        if (!isActiveWith(previous)) abortInvalidatedRecreate(previous, recreated)
         callInstanceDispose(previous)
+        if (!isActiveWith(previous)) abortInvalidatedRecreate(previous, recreated)
         value = recreated
         notifyCreate()
-        activeBindingIds.forEach(::notifyBind)
+        requireActiveRecreatedInstance(recreated)
+        activeBindingIds.forEach { bindingId ->
+            notifyBind(bindingId)
+            requireActiveRecreatedInstance(recreated)
+        }
         action = InstanceAction.Recreate
         lastAction = InstanceAction.Recreate
-        notifyListeners()
+        runInViewModelUpdateTransaction(::notifyListeners)
         action = null
         return recreated
+    }
+
+    private fun isActiveWith(expected: Value): Boolean = !disposed && value === expected
+
+    private fun abortInvalidatedRecreate(
+        previous: Value,
+        recreated: Value,
+    ): Nothing {
+        val replacementIsManaged = isActiveWith(recreated)
+        if (!replacementIsManaged && recreated !== previous) {
+            callInstanceDispose(recreated)
+        }
+        throw ViewModelError(
+            "Cannot recreate because its handle was disposed or replaced while the builder " +
+                "was running. The detached replacement was disposed and was not installed.",
+        )
+    }
+
+    private fun requireActiveRecreatedInstance(recreated: Value) {
+        if (isActiveWith(recreated)) return
+        throw ViewModelError(
+            "Cannot recreate because its handle was disposed or replaced while the " +
+                "replacement lifecycle was being initialized.",
+        )
     }
 
     fun addListener(listener: (InstanceHandle<Value>) -> Unit): () -> Unit {
@@ -90,7 +153,7 @@ internal class InstanceHandle<Value : Any>(
         if (arg.aliveForever && !force) return
         action = InstanceAction.Dispose
         lastAction = InstanceAction.Dispose
-        notifyListeners()
+        runInViewModelUpdateTransaction(::notifyListeners)
         action = null
         onDispose()
     }
@@ -100,6 +163,8 @@ internal class InstanceHandle<Value : Any>(
         disposed = true
         callInstanceDispose(value)
         value = null
+        bindingSources.clear()
+        directBindingSources.clear()
         listeners.clear()
     }
 

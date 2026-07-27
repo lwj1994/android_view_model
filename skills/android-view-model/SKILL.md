@@ -1,243 +1,289 @@
 ---
 name: android-view-model
-description: Triggered when using AndroidViewModel in Kotlin Android projects. Covers milu.viewmodel ViewModel / StateViewModel, ViewModelSpec declarations, ViewModelBinding, Compose bindings, Activity / Fragment / View / plain class integration, VM-to-VM DI, main-thread constraints, lifecycle disposal, and tests. Use when code imports milu.viewmodel or asks about this Android counterpart to apple_view_model.
+description: Use AndroidViewModel in Kotlin Android projects for state management, functional-module composition, dependency injection, automatic lifecycle, Compose/Activity/Fragment/View bindings, ViewModel-to-ViewModel dependencies, sharing, threading, and tests.
 ---
 
 # AndroidViewModel Skill
 
-AndroidViewModel is a ViewModel registry and DI layer for Android, modeled after `apple_view_model`.
+AndroidViewModel is the Android-platform port of Flutter `view_model`'s core
+model: a type-keyed registry, binding-based source-aware ownership, functional
+modules composed as ViewModels, and automatic disposal. Preserve that model
+while adapting host integration and threading to Android.
 
-It intentionally does **not** implement `ObserverValue` / `ObservableValue`.
+It intentionally does not implement Flutter/Apple `ObservableValue` APIs.
 
-## Trigger Conditions
+## Source of truth
 
-Activate when:
+- Public API and examples: [repository README](../../README.md)
+- Runtime behavior: `android-view-model/src/main/kotlin/milu/viewmodel/`
+- Contract tests: `android-view-model/src/test/kotlin/milu/viewmodel/`
+- Conceptual upstream: Flutter `view_model` README and skill
 
-- Code imports `milu.viewmodel.*`
-- Code uses `ViewModel`, `StateViewModel`, `ViewModelSpec`, `viewModelSpec`, `ViewModelBinding`, `watchViewModel`, or `viewModelBinding`
-- The user asks about AndroidViewModel, an Android counterpart to AppleViewModel, shared ViewModel services, key/tag scoped DI, lifecycle disposal, or Compose/Fragment/Activity/View integration
-- The user reports lifecycle, sharing, main-thread, or Gradle setup issues involving this framework
+If this skill conflicts with the repository README or tests, follow the current
+repository and update the skill.
 
-## Core Model
+## Trigger conditions
 
-Use this mental model:
+Use this skill when:
 
-- `ViewModel`: business/service base class with `listen`, `notifyListeners`, `update`, `addDispose`, `viewModelScope`, and lifecycle hooks.
-- `StateViewModel<State>`: immutable state base class with `state`, `previousState`, `setState`, `listenState`, and `listenStateSelect`.
-- `ViewModelSpec<VM>`: factory declaration. A non-null `key` shares the instance across bindings.
-- `ViewModelBinding`: scope/container held by Activity, Fragment, Compose, View, or a plain class.
+- Code imports `milu.viewmodel.*` or uses `ViewModel`, `StateViewModel`,
+  `ViewModelSpec`, `ViewModelBinding`, `watchViewModel`, or `readViewModel`.
+- The task concerns state, DI, module composition, lifecycle, sharing,
+  main-thread behavior, Compose/Activity/Fragment/View integration, or tests.
 
-Business `milu.viewmodel.ViewModel` does **not** extend AndroidX `ViewModel`. AndroidX `ViewModel` is only used internally to retain `ViewModelBinding` for `ViewModelStoreOwner` hosts.
+## Primary resolution rule
 
-All public ViewModel APIs are main-thread only. Prefer APIs annotated with `@MainThread`, and do not mutate state from background threads.
+- Keep a stable, module-level spec and resolve it with `watch(spec)` or
+  `read(spec)`. This is the default for Compose, Android hosts, plain bindings,
+  tests, and ViewModel-to-ViewModel dependencies.
+- `watch` creates/reuses, binds, observes handle recreation/disposal, and listens
+  to the ViewModel's own notifications.
+- `read` creates/reuses, binds, and observes handle recreation/disposal without
+  listening to the ViewModel's own notifications.
+- Cached APIs are advanced lookup-only escape hatches. They require an instance
+  created by another path, cannot create a missing dependency, and should not be
+  suggested as the normal DI style.
 
-## Choosing a Base Class
+## Core model
 
-| Need | Recommend | Notes |
-| --- | --- | --- |
-| Service, repository, cache, controller | `ViewModel` | Use `update {}` only when listeners need notification. |
-| Immutable UI/business state | `StateViewModel<State>` | Prefer for Compose and screen-level state. |
-| Cross-module singleton service | `ViewModel` + keyed spec | Use `aliveForever = true` when it should outlive bindings. |
+- Any functional unit can be a ViewModel: UI state, service, repository,
+  coordinator, cache, controller, or domain capability.
+- Prefer managed instances over global singletons. Default specs to no `key`
+  and `aliveForever = false`; let the binding graph own creation and disposal.
+- `milu.viewmodel.ViewModel` is the business/lifecycle base with `listen`,
+  `notifyListeners`, `update`, `addDispose`, `viewModelScope`, and
+  `viewModelBinding`.
+- `StateViewModel<State>` adds immutable state, `setState`, `previousState`,
+  `listenState`, and `listenStateSelect`.
+- `ViewModelSpec<VM>` is a factory declaration, not the instance itself.
+- `ViewModelBinding` is the owner/container used by Compose, Activity,
+  Fragment, View, plain classes, and tests.
+- Business `ViewModel` does not extend AndroidX `ViewModel`. AndroidX is used
+  only to retain a binding for `ViewModelStoreOwner` hosts.
+- Public ViewModel APIs are main-thread only and guarded by `@MainThread` plus
+  runtime assertions.
 
-Example:
+## Identity, sharing, and retention
+
+- Identity is the resolved ViewModel type plus the effective `key`. The
+  builder's runtime result and `tag` do not participate in identity.
+- With no explicit key, one binding reuses one instance per resolved ViewModel
+  type and remains isolated from other bindings.
+- Use a key for intentional cross-binding sharing or multiple instances of the
+  same type in one binding.
+- `tag` is only a grouping/lookup label.
+- A key does not retain an instance.
+- `aliveForever` only skips automatic disposal when ownership reaches zero.
+  Explicit `recycle` and `InstanceManager.debugReset()` still dispose it.
+- A nested `aliveForever` dependency requires an explicit key because a
+  parent-private key becomes unreachable after that parent generation dies.
 
 ```kotlin
-data class CounterState(val count: Int = 0)
+// Managed by one resolving binding by default.
+val catalogSpec = viewModelSpec { CatalogViewModel() }
 
-class CounterViewModel : StateViewModel<CounterState>(
-    initialState = CounterState(),
-    equals = { a, b -> a == b },
-) {
-    fun increment() {
-        setState(state.copy(count = state.count + 1))
-    }
-}
-```
-
-## Declaring Specs
-
-Prefer module-level specs.
-
-```kotlin
-val counterSpec = viewModelSpec(key = "counter") {
-    CounterViewModel()
-}
-
-val authSpec = viewModelSpec(
-    key = "auth",
+// Explicit app-wide sharing and retention, only when required.
+val sessionSpec = viewModelSpec(
+    key = "app-session",
     aliveForever = true,
-) {
-    AuthViewModel()
-}
+) { SessionViewModel() }
 ```
 
-Use arg specs when constructor arguments determine sharing:
+Parameterized factories use `viewModelSpecWithArg` and
+`viewModelSpecWithArg2...4`. Prefer a key derived from arguments when equal
+arguments are intended to share.
 
-```kotlin
-val userSpec = viewModelSpecWithArg<UserViewModel, String>(
-    builder = { userId -> UserViewModel(userId) },
-    key = { userId -> "user-$userId" },
-)
+## Choosing a binding
 
-val user = binding.watch(userSpec("42"))
-```
-
-## Choosing a Binding
-
-| Context | Recommend | Lifecycle |
+| Context | Recommended API | Lifecycle |
 | --- | --- | --- |
-| Compose retained by Activity/Fragment owner | `rememberRetainedViewModelBinding()` | Cleared with current `ViewModelStoreOwner`. |
-| Compose local composition only | `rememberViewModelBinding()` | Disposed when composition leaves. |
-| Compose read with rebuild | `watchViewModel(spec)` | Subscribes to VM changes. |
-| Compose read without rebuild | `readViewModel(spec)` | Binds but does not subscribe. |
-| Activity | `viewModelBinding.watch(spec)` | Cleared with Activity `ViewModelStore`. |
-| Fragment instance | `viewModelBinding.watch(spec)` | Cleared with Fragment `ViewModelStore`. |
-| Fragment view lifecycle | `viewLifecycleViewModelBinding.watch(spec)` | Disposed when Fragment view is destroyed. |
-| Fragment shared with Activity | `activityViewModelBinding.read(spec)` | Uses Activity binding. |
-| Custom View | `viewModelBinding.watch(spec)` | Disposed on detach from window. |
-| View tree owner | `viewTreeViewModelBinding.watch(spec)` | Reuses nearest `ViewModelStoreOwner`. |
-| Plain class | `ViewModelBindingScope()` | Caller must `close()` / `dispose()`. |
+| Compose retained by Activity/Fragment | `rememberRetainedViewModelBinding()` | Cleared with current `ViewModelStoreOwner`. |
+| Compose local composition | `rememberViewModelBinding()` | Disposed when composition leaves. |
+| Compose broad rebuild | `watchViewModel(spec)` | Subscribes to VM notifications. |
+| Compose access without broad rebuild | `readViewModel(spec)` | Bound, no VM-wide subscription. |
+| Activity / Fragment instance | `viewModelBinding.watch/read(spec)` | Cleared with host `ViewModelStore`. |
+| Fragment view lifecycle | `viewLifecycleViewModelBinding.watch/read(spec)` | Disposed with the Fragment view. |
+| Activity-shared Fragment access | `activityViewModelBinding.watch/read(spec)` | Uses Activity ownership. |
+| Custom View local scope | `viewModelBinding.watch/read(spec)` | Disposed on detach. |
+| View tree owner | `viewTreeViewModelBinding.watch/read(spec)` | Reuses nearest owner binding. |
+| Plain class / tests | `ViewModelBindingScope()` or `ViewModelBinding()` | Caller must close/dispose. |
 
-## watch vs read
-
-- `watch(spec)` = create if needed + bind + subscribe to `notifyListeners`
-- `read(spec)` = create if needed + bind, no subscription
-- `watchCached<T>(key/tag)` = lookup existing + bind + subscribe, throws on miss
-- `readCached<T>(key/tag)` = lookup existing + bind, throws on miss
-- `maybe*Cached` variants return `null` on miss
-
-Use `read` for service dependencies unless the parent host must refresh when the dependency changes.
-
-## Compose Pattern
-
-```kotlin
-@Composable
-fun CounterScreen() {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-        val counter = watchViewModel(counterSpec)
-        Button(onClick = counter::increment) {
-            Text("${counter.state.count}")
-        }
-    }
-}
-```
-
-Use `rememberRetainedViewModelBinding()` in screens hosted by Activity/Fragment. Use `rememberViewModelBinding()` only for short-lived local scopes.
-
-## Activity / Fragment / View Patterns
+Use resolver properties instead of `by lazy` or stored references when an
+explicit global recycle/recreate can occur:
 
 ```kotlin
 class MainActivity : FragmentActivity() {
-    private val counter by lazy { viewModelBinding.watch(counterSpec) }
+    private val orders: OrdersViewModel
+        get() = viewModelBinding.watch(ordersSpec)
 }
 ```
+
+## Binding API semantics
+
+| API | Creates? | Owns on hit? | VM notifications | Handle recreate/dispose |
+| --- | ---: | ---: | ---: | ---: |
+| `watch(spec)` | Yes | Yes | Yes | Yes |
+| `read(spec)` | Yes | Yes | No | Yes |
+| `watchCached<T>(key/tag)` | No | Yes | Yes | Yes |
+| `readCached<T>(key/tag)` | No | Yes | No | Yes |
+| `maybeWatchCached<T>` | No | Yes on hit | Yes | Yes |
+| `maybeReadCached<T>` | No | Yes on hit | No | Yes |
+| `watchCachesByTag<T>` | No, all hits | Yes | Yes | Yes |
+| `readCachesByTag<T>` | No, all hits | Yes | No | Yes |
+
+Non-`maybe` single-result cached lookups throw on a miss. A single lookup by tag
+can be ambiguous and depends on cache creation order; use the batch API when a
+tag may match several instances.
+
+`listen`, `listenState`, and `listenStateSelect` are binding-owned side effects.
+They resolve through `read`, are removed on binding disposal, and migrate to a
+replacement during `recreate`. Never place a `listen` call in a repeatedly
+evaluated resolver property.
+
+## ViewModel-to-ViewModel composition
+
+Expose dependencies through resolver properties. Do not retain a nested
+ViewModel in `by lazy`, a stored property, or an ad-hoc cache.
 
 ```kotlin
-class CounterFragment : Fragment() {
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        val counter = viewLifecycleViewModelBinding.watch(counterSpec)
-    }
+val cartSpec = viewModelSpec { CartViewModel() }
+val pricingSpec = viewModelSpec { PricingViewModel() }
+
+class CheckoutViewModel : ViewModel() {
+    val cart: CartViewModel
+        get() = viewModelBinding.read(cartSpec)
+
+    val pricing: PricingViewModel
+        get() = viewModelBinding.watch(pricingSpec)
 }
 ```
 
-```kotlin
-class CounterPanelView(context: Context) : LinearLayout(context) {
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        val counter = viewModelBinding.watch(counterSpec)
-    }
-}
-```
+- A resolver declaration creates nothing until accessed.
+- Use `read` to call a child without bubbling its own notifications.
+- Use `watch` when a child update should call
+  `parent.onDependencyNotify(child)` and then notify the parent.
+- Every parent object generation lazily owns one stable dependency binding. It
+  supplies a private child identity, keeps resolved children alive for at least
+  the parent's lifetime, and mirrors current root owners in real time.
+- Ownership is source-aware. Direct and multiple parent paths sharing one
+  visible binding id are released independently.
+- Synchronous propagation is transaction-based; each binding updates at most
+  once even in a diamond graph.
 
-## Plain Class Pattern
+## Lifecycle controls and safety
 
-```kotlin
-class CounterController : AutoCloseable {
-    private val scope = ViewModelBindingScope()
-    private val counter = scope.viewModelBinding.read(counterSpec)
+- Routine cleanup is binding-driven; do not call lifecycle hooks directly.
+- `recycle(vm)` is a destructive global escape hatch. It removes every owner
+  path and force-disposes the managed object, including `aliveForever`.
+- `recreate(vm, builder)` replaces an object while preserving active owner
+  relationships and binding-owned subscriptions.
+- Always re-resolve through a property after either operation; a stored
+  reference may point to a disposed generation.
+- Recursive construction and runtime ownership cycles throw `ViewModelError`.
+  A failed build rolls back children created by its dependency scope, and a
+  reset-invalidated recreation disposes the detached replacement.
 
-    fun increment() {
-        counter.increment()
-    }
+Lifecycle hooks are `onCreate`, `onBind`, `onUnbind`, and `onDispose`. Register
+owned resources with `addDispose` and let the framework invoke cleanup.
 
-    override fun close() {
-        scope.close()
-    }
-}
-```
+## State and observation
 
-## VM-to-VM DI
+- Choose `ViewModel` for commands/services or broad change events.
+- Choose `StateViewModel<State>` for immutable state and state diffs; neither is
+  universally preferred.
+- `setState` is the only operation that emits a state diff. A plain
+  `notifyListeners()` only reaches broad ViewModel listeners.
+- Full-state equality is constructor `equals` → global
+  `ViewModel.config.equals` → reference identity.
+- `listenStateSelect` compares selected values with Kotlin equality (`!=`).
+  Unlike current Flutter `view_model`, it has no local selector-`equals`
+  argument.
+- For selector-level observation, use a read-style resolution and let the
+  selector/listener own updates instead of also adding a broad `watch`.
 
-Inside a ViewModel, use `viewModelBinding` to resolve dependencies created by the same binding.
-
-```kotlin
-class OrderViewModel : ViewModel() {
-    val auth: AuthViewModel = viewModelBinding.read(authSpec)
-}
-```
-
-Prefer `read` for dependencies. Use `watch` only if this ViewModel should notify when the dependency changes through binding updates.
-
-## Main-Thread Rules
-
-Check for these when debugging:
+## Main-thread and host rules
 
 - Construct and use ViewModels on the main thread.
-- Call `setState`, `notifyListeners`, `watch`, `read`, and `dispose` on the main thread.
-- Use `viewModelScope` for async work, then switch back to `Dispatchers.Main.immediate` before state mutation.
-- Do not bypass the framework by calling lifecycle hooks directly in app code.
+- Call `setState`, `notifyListeners`, `watch`, `read`, `recreate`, `recycle`,
+  and `dispose` on the main thread.
+- Use `viewModelScope` for asynchronous work and return to
+  `Dispatchers.Main.immediate` before mutating state.
+- Use `rememberRetainedViewModelBinding()` for ordinary Compose screens hosted
+  by Activity/Fragment. Use `rememberViewModelBinding()` only for intentionally
+  short-lived local composition scope.
+- `View.viewModelBinding` ends at detach; use a tree/owner binding when state
+  must survive View recreation.
 
-## Pitfalls to Catch
+## Pitfalls to catch
 
-1. **Using AndroidX ViewModel as the business base**: use `milu.viewmodel.ViewModel` or `StateViewModel` instead.
-2. **Missing key on shared services**: unkeyed specs create a new instance per `watch/read` call.
-3. **Creating specs inside Composables or render methods**: prefer module-level specs so sharing and test proxies remain stable.
-4. **Forgetting to close plain-class scopes**: `ViewModelBindingScope` must be closed by the owner.
-5. **Using View binding for retained screen state**: `View.viewModelBinding` is disposed on detach; use `viewTreeViewModelBinding` or owner binding when retention is required.
-6. **Mutating state in place**: `StateViewModel` expects a full new immutable state value via `setState`.
-7. **Calling from background threads**: APIs are main-thread only and runtime assertions can fail fast.
-8. **Gradle plugin leakage**: Android modules should use `org.jetbrains.kotlin.android`, not `kotlin("jvm")`.
+1. Recommending a keyed `aliveForever` singleton for every service.
+2. Using AndroidX `ViewModel` as the business base.
+3. Caching a resolved ViewModel in `by lazy` or another long-lived field.
+4. Assuming `read` is non-binding; it still owns the instance.
+5. Using cached lookup as a replacement for a stable spec.
+6. Resolving a nested unkeyed `aliveForever` ViewModel.
+7. Registering `listen` inside a resolver property.
+8. Pairing selector observation with a broad `watch` subscription.
+9. Creating specs inside Composables or render methods.
+10. Calling public APIs from a background thread.
+11. Forgetting to close a plain-class binding scope.
+12. Using a detach-scoped View binding for retained screen state.
 
-## Tests
+## Tests and mocks
 
-Standard test reset:
+- Tests must run in one JVM fork and in runner order because registry, config,
+  lifecycle, reset, and spec-proxy state are process-global. Do not enable
+  parallel forks, test sharding, or concurrent runners.
+- `android-view-model/build.gradle.kts` must keep
+  `maxParallelForks = 1`; downstream CI must preserve this invariant.
+- Put constructor calls inside `viewModelSpec` builders. Resolve managed
+  instances through a test binding instead of constructing them directly.
+- Do not retain ViewModels in test fields; use a getter backed by the test
+  binding.
+- Dispose every test binding and reset global state between cases.
+- Use `setProxy` / `clearProxy` in `try/finally` for mocks.
 
 ```kotlin
+private lateinit var binding: ViewModelBinding
+private val feature: FeatureViewModel
+    get() = binding.read(featureSpec)
+
 @Before
 fun setUp() {
     InstanceManager.debugReset()
     ViewModel.debugReset()
+    binding = ViewModelBinding()
 }
 
 @After
 fun tearDown() {
+    binding.dispose()
     InstanceManager.debugReset()
     ViewModel.debugReset()
 }
 ```
 
-Spec proxy pattern:
+## Platform differences from Flutter
 
-```kotlin
-spec.setProxy(viewModelSpec(key = "auth") { MockAuthViewModel() })
-try {
-    // test code
-} finally {
-    spec.clearProxy()
-}
-```
+- Android host retention uses AndroidX `ViewModelStoreOwner`; business
+  ViewModels remain framework-owned.
+- There is no `ObservableValue`, Flutter DevTools extension, `@GenSpec`
+  generator, scoped `overrideWith/runWithOverride`, route pause provider, or
+  ticker pause provider in this port.
+- Android exposes `viewModelScope` and strict main-thread assertions.
+- Selector equality currently uses Kotlin equality directly rather than
+  Flutter's optional local/global selector comparator chain.
 
-Run verification:
+## Verification and dependency guidance
+
+Run library verification serially:
 
 ```bash
-./gradlew :android-view-model:testDebugUnitTest :example:assembleDebug
+./gradlew :android-view-model:testDebugUnitTest \
+  :android-view-model:assembleDebug \
+  :android-view-model:lintDebug
 ```
 
-## Dependency Guidance
-
-For the library module:
-
-- Use `api` only when a dependency type appears in public API signatures.
-- Use `implementation` for internal implementation dependencies.
-- Keep AndroidX `ViewModel` usage in host-retention code, not in business ViewModel inheritance.
-
+For Gradle dependencies, use `api` only when a dependency type appears in
+public signatures and `implementation` for internal implementation details.
+Android modules use `org.jetbrains.kotlin.android`, not `kotlin("jvm")`.

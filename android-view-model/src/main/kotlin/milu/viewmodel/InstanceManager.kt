@@ -5,7 +5,9 @@ import kotlin.reflect.KClass
 
 @MainThread
 public object InstanceManager {
-    private val stores = linkedMapOf<KClass<*>, Store<Any>>()
+    private val stores = linkedMapOf<KClass<*>, Store<*>>()
+    internal var isResetting: Boolean = false
+        private set
 
     internal fun <Value : Any> get(
         type: KClass<Value>,
@@ -22,6 +24,7 @@ public object InstanceManager {
         factory: InstanceFactory<Value>? = null,
     ): InstanceHandle<Value> {
         assertMainThread()
+        requireNotResetting()
         val store = store(type)
         if (factory == null || factory.isEmpty) {
             val found = store.findNewest(tag = factory?.arg?.tag)
@@ -68,22 +71,46 @@ public object InstanceManager {
     internal fun <Value : Any> getHandlesByTag(
         tag: Any,
         type: KClass<Value>,
-    ): List<InstanceHandle<Value>> = store(type).instancesByTag(tag)
+    ): List<InstanceHandle<Value>> {
+        requireNotResetting()
+        return store(type).instancesByTag(tag)
+    }
 
     internal fun <Value : Any> recreate(
         value: Value,
         type: KClass<Value>,
         builder: (() -> Value)? = null,
-    ): Value = store(type).recreate(value, builder)
+    ): Value {
+        requireNotResetting()
+        return store(type).recreate(value, builder)
+    }
+
+    internal fun recycle(value: Any) {
+        assertMainThread()
+        requireNotResetting()
+        stores.values.toList().forEach { store ->
+            @Suppress("UNCHECKED_CAST")
+            if ((store as Store<Any>).tryRecycle(value)) return
+        }
+        throw ViewModelError(
+            "Cannot recycle ${value::class.qualifiedName}. Instance not found in store.",
+        )
+    }
 
     public val debugStoreCount: Int
         get() = stores.size
 
     public fun debugReset() {
         assertMainThread()
-        val snapshot = stores.values.toList()
-        stores.clear()
-        snapshot.forEach { it.dispose() }
+        if (isResetting) return
+        isResetting = true
+        try {
+            val snapshot = stores.values.toList()
+            stores.clear()
+            snapshot.forEach { it.dispose() }
+        } finally {
+            isResetting = false
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -91,8 +118,8 @@ public object InstanceManager {
         val cached = stores[type]
         if (cached != null) return cached as Store<Value>
 
-        lateinit var created: Store<Any>
-        created = Store {
+        lateinit var created: Store<Value>
+        created = Store(type) {
             val current = stores[type]
             if (current === created && created.isEmpty) {
                 stores.remove(type)
@@ -100,6 +127,12 @@ public object InstanceManager {
             }
         }
         stores[type] = created
-        return created as Store<Value>
+        return created
+    }
+
+    private fun requireNotResetting() {
+        if (isResetting) {
+            throw ViewModelError("Cannot access ViewModels while InstanceManager is resetting.")
+        }
     }
 }

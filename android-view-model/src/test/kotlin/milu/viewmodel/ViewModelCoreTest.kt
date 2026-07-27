@@ -72,17 +72,16 @@ class ViewModelCoreTest {
     }
 
     @Test
-    fun unkeyedSpec_createsNewInstanceEachCall() {
+    fun unkeyedSpec_reusesOneInstanceWithinBinding() {
         val spec = viewModelSpec { CounterViewModel() }
         val binding = ViewModelBinding()
 
         val first = binding.read(spec)
         val second = binding.read(spec)
 
-        assertFalse(first === second)
+        assertSame(first, second)
         binding.dispose()
         assertTrue(first.isDisposed)
-        assertTrue(second.isDisposed)
     }
 
     @Test
@@ -215,7 +214,8 @@ private class RootViewModel : ViewModel() {
         lateinit var depSpec: ViewModelSpec<DependencyViewModel>
     }
 
-    val dep: DependencyViewModel = viewModelBinding.read(depSpec)
+    val dep: DependencyViewModel
+        get() = viewModelBinding.read(depSpec)
 }
 
 private data class CounterState(
