@@ -169,11 +169,31 @@ class ParentDependencyBindingTest {
     }
 
     @Test
-    fun nestedAliveForever_requiresExplicitReachableKey() {
+    fun aliveForever_requiresExplicitKeyAtRootAndNestedResolutions() {
+        val root = ViewModelBinding()
+        val rootError = assertThrows(ViewModelError::class.java) {
+            root.read(aliveUnkeyedChildSpec)
+        }
+        assertTrue(rootError.message!!.contains("must use an explicit key"))
+
+        val argSpec = viewModelSpecWithArg<ChildViewModel, Int>(
+            builder = { ChildViewModel() },
+            key = { null },
+            aliveForever = { true },
+        )
+        val argError = assertThrows(ViewModelError::class.java) {
+            root.read(argSpec(1))
+        }
+        assertEquals(rootError.message, argError.message)
+        root.dispose()
+
         val owner = ViewModelBinding()
         val parent = owner.read(parentSpec)
 
-        assertThrows(ViewModelError::class.java) { parent.aliveUnkeyedChild }
+        val nestedError = assertThrows(ViewModelError::class.java) {
+            parent.aliveUnkeyedChild
+        }
+        assertEquals(rootError.message, nestedError.message)
         val child = parent.aliveKeyedChild
         owner.dispose()
 
@@ -184,6 +204,29 @@ class ParentDependencyBindingTest {
         next.recycle(child)
         assertTrue(child.isDisposed)
         next.dispose()
+    }
+
+    @Test
+    fun aliveForever_requiresExplicitKeyAtStoreBoundary() {
+        var buildCount = 0
+        val error = assertThrows(ViewModelError::class.java) {
+            InstanceManager.get(
+                Any::class,
+                InstanceFactory(
+                    builder = {
+                        buildCount += 1
+                        Any()
+                    },
+                    arg = InstanceArg(aliveForever = true),
+                ),
+            )
+        }
+
+        assertEquals(
+            "An aliveForever instance must use an explicit key.",
+            error.message,
+        )
+        assertEquals(0, buildCount)
     }
 
     @Test

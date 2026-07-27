@@ -24,8 +24,9 @@ skills/android-view-model/                          AI Skill
 2. identity 是解析 ViewModel 类型 + effective key。无 key 时，同一 binding 内
    同类型复用、不同 binding 隔离；显式 key 仅用于跨 binding 共享或同类型多实例。
 3. 默认使用受 binding 管理的非 singleton 模块，不要为普通 service 自动添加
-   key 或 `aliveForever`。key 不保活；`aliveForever` 仍可被 `recycle/debugReset`
-   强制销毁，nested `aliveForever` 必须显式 key。
+   key 或 `aliveForever`。所有 `aliveForever` spec 都必须显式 key，root 与 nested
+   解析统一在 builder 执行前校验，底层 Store 也必须兜底；`recycle/debugReset`
+   仍可强制销毁。
 4. 每个 parent generation 延迟拥有稳定 dependency binding。它保活已解析 child、
    实时传播 root owners；direct 与多个 parent 路径按 source 独立释放。
 5. 嵌套 ViewModel 与 host 中可能经历 recycle/recreate 的 ViewModel 必须通过

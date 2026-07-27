@@ -298,11 +298,11 @@ public open class ViewModelBinding {
         check(!isDisposed) { "Cannot get ${factory.modelClass.qualifiedName}: binding is disposed." }
         val configuredKey = factory.key()
         val aliveForever = factory.aliveForever()
-        if (isDependencyBinding && configuredKey == null && aliveForever) {
+        if (configuredKey == null && aliveForever) {
             throw ViewModelError(
-                "An aliveForever ViewModel resolved from another ViewModel must use " +
-                    "an explicit key. A parent-private default key becomes unreachable " +
-                    "after that parent generation is disposed.",
+                "An aliveForever ViewModel must use an explicit key. " +
+                    "aliveForever retains the instance after ownership reaches zero, so " +
+                    "an unkeyed binding-private identity would not be globally reachable.",
             )
         }
         val key = configuredKey ?: defaultViewModelKey

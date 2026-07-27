@@ -16,5 +16,6 @@ public interface ViewModelFactory<VM : ViewModel> {
 
     public fun tag(): Any? = null
 
+    /** Returning true requires [key] to return a non-null explicit key. */
     public fun aliveForever(): Boolean = false
 }

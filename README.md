@@ -47,7 +47,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:v0.2.0")
+    implementation("com.github.lwj1994:android_view_model:v0.2.1")
 }
 ```
 
@@ -78,7 +78,7 @@ val counterSpec = viewModelSpec {
 - `key` participates in identity. Use it for intentional cross-binding sharing or multiple same-type instances in one binding.
 - `tag` is only a grouping/lookup label.
 - `aliveForever` skips automatic disposal when all ownership paths leave; explicit `recycle` and `InstanceManager.debugReset()` still force disposal.
-- A nested `aliveForever` dependency must have an explicit key because a parent-private key becomes unreachable after its parent generation dies.
+- Every `aliveForever` spec must have an explicit key, whether resolved by a root binding or another ViewModel. A missing or computed-null key throws `ViewModelError` before the builder runs, and the Store enforces the same invariant for internal factories.
 
 Bind it to the host you are using.
 
@@ -155,7 +155,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:v0.2.0")
+    implementation("android_view_model:android-view-model:v0.2.1")
 }
 ```
 
@@ -275,7 +275,7 @@ class CheckoutViewModel : ViewModel() {
 
 Use `read` when the parent only calls the child. Use `watch` when child notifications should call `parent.onDependencyNotify(child)` and then notify the parent. Synchronous propagation is transaction-based, so diamond dependency graphs update each binding at most once.
 
-A keyed parent can be shared by several root bindings. Roots joining or leaving are mirrored to already-resolved children without changing an unkeyed child's identity. Ownership paths are source-aware: one root may own a keyed child directly and through several parents, and releasing one path does not remove the others. A nested `aliveForever` child must use an explicit key so its retained cache remains reachable after the parent generation is disposed.
+A keyed parent can be shared by several root bindings. Roots joining or leaving are mirrored to already-resolved children without changing an unkeyed child's identity. Ownership paths are source-aware: one root may own a keyed child directly and through several parents, and releasing one path does not remove the others. Every `aliveForever` spec must use an explicit key at both root and nested resolution sites.
 
 Getter declarations create nothing by themselves. After a child is resolved, the parent generation owns a `parent → child` lifecycle edge. The child may outlive its parent if another direct or parent path still owns it, but it cannot be disposed while that parent generation still owns it.
 

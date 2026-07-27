@@ -5,6 +5,9 @@ import kotlin.reflect.KClass
 
 /**
  * Zero-argument ViewModel registration.
+ *
+ * Every retained spec must configure a non-null explicit key when
+ * [aliveForever] is true.
  */
 @MainThread
 public class ViewModelSpec<VM : ViewModel>(

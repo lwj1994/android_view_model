@@ -32,6 +32,9 @@ internal class Store<Value : Any>(
         if (disposed) {
             throw ViewModelError("Store has been disposed.")
         }
+        if (factory.arg.aliveForever && factory.arg.key == null) {
+            throw ViewModelError("An aliveForever instance must use an explicit key.")
+        }
         val realKey = factory.arg.key ?: ViewModelPrivateKey()
         val bindingId = factory.arg.bindingId
         val arg = factory.arg.copy(key = realKey)

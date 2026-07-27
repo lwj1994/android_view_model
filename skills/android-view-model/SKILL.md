@@ -75,8 +75,10 @@ Use this skill when:
 - A key does not retain an instance.
 - `aliveForever` only skips automatic disposal when ownership reaches zero.
   Explicit `recycle` and `InstanceManager.debugReset()` still dispose it.
-- A nested `aliveForever` dependency requires an explicit key because a
-  parent-private key becomes unreachable after that parent generation dies.
+- Every `aliveForever` spec requires an explicit key, whether it is resolved by
+  a root binding or another ViewModel. Resolution throws `ViewModelError`
+  before calling the builder when the key is missing or computes to `null`; the
+  Store enforces the same invariant for internal factories.
 
 ```kotlin
 // Managed by one resolving binding by default.
@@ -221,7 +223,7 @@ owned resources with `addDispose` and let the framework invoke cleanup.
 3. Caching a resolved ViewModel in `by lazy` or another long-lived field.
 4. Assuming `read` is non-binding; it still owns the instance.
 5. Using cached lookup as a replacement for a stable spec.
-6. Resolving a nested unkeyed `aliveForever` ViewModel.
+6. Resolving any unkeyed `aliveForever` ViewModel, at root or nested scope.
 7. Registering `listen` inside a resolver property.
 8. Pairing selector observation with a broad `watch` subscription.
 9. Creating specs inside Composables or render methods.
