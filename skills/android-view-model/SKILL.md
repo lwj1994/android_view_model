@@ -31,18 +31,20 @@ Use this skill when:
 - The task concerns state, DI, module composition, lifecycle, sharing,
   main-thread behavior, Compose/Activity/Fragment/View integration, or tests.
 
-## Primary resolution rule
+## Resolution decision order (must follow)
 
-- Keep a stable, module-level spec and resolve it with `watch(spec)` or
-  `read(spec)`. This is the default for Compose, Android hosts, plain bindings,
-  tests, and ViewModel-to-ViewModel dependencies.
-- `watch` creates/reuses, binds, observes handle recreation/disposal, and listens
-  to the ViewModel's own notifications.
-- `read` creates/reuses, binds, and observes handle recreation/disposal without
-  listening to the ViewModel's own notifications.
-- Cached APIs are advanced lookup-only escape hatches. They require an instance
-  created by another path, cannot create a missing dependency, and should not be
-  suggested as the normal DI style.
+1. Keep a stable, module-level spec. Do this for Compose, Android hosts, plain
+   bindings, tests, and ViewModel-to-ViewModel dependencies.
+2. Resolve that spec with `watch(spec)` when ViewModel notifications should
+   update the owner, or `read(spec)` when lifecycle-bound access should not
+   listen to the ViewModel's own notifications. Both APIs create/reuse, bind,
+   and observe handle recreation/disposal.
+3. Use a cached API only when the task explicitly requires an advanced
+   cross-owner query of an instance already created elsewhere. Cached APIs
+   cannot create a missing dependency and must not be suggested as normal DI.
+
+A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
+`watch` or `read`; knowing cache identity is not a reason to bypass the spec.
 
 ## Core model
 
@@ -120,12 +122,22 @@ class MainActivity : FragmentActivity() {
 }
 ```
 
-## Binding API semantics
+## Primary binding APIs (recommended)
 
 | API | Creates? | Owns on hit? | VM notifications | Handle recreate/dispose |
 | --- | ---: | ---: | ---: | ---: |
 | `watch(spec)` | Yes | Yes | Yes | Yes |
 | `read(spec)` | Yes | Yes | No | Yes |
+
+## Cached lookup APIs (advanced)
+
+Do not replace a stable spec with cache lookup. These APIs couple the caller to
+another path's creation order, cache identity, and lifecycle, and cannot create
+a missing dependency. Show them only for an intentional query of existing
+cross-owner state.
+
+| API | Creates? | Owns on hit? | VM notifications | Handle recreate/dispose |
+| --- | ---: | ---: | ---: | ---: |
 | `watchCached<T>(key/tag)` | No | Yes | Yes | Yes |
 | `readCached<T>(key/tag)` | No | Yes | No | Yes |
 | `maybeWatchCached<T>` | No | Yes on hit | Yes | Yes |
@@ -141,6 +153,18 @@ tag may match several instances.
 They resolve through `read`, are removed on binding disposal, and migrate to a
 replacement during `recreate`. Never place a `listen` call in a repeatedly
 evaluated resolver property.
+
+## Response pattern for implementation requests
+
+- Default every normal resolution example to a stable spec plus `watch(spec)`
+  or `read(spec)`.
+- Preserve spec-based resolution in refactors and migrations. Never introduce a
+  cached API merely because a key or tag is available.
+- Show cached lookup only when the user explicitly needs an already-created
+  cross-owner cache entry, and state that absence, creation order, tag
+  multiplicity, and the other owner's lifecycle are part of the contract.
+- Default ordinary modules to an unkeyed spec with `aliveForever = false`; add a
+  key or retention only when sharing or retention is intentional.
 
 ## ViewModel-to-ViewModel composition
 

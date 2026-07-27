@@ -13,7 +13,8 @@ class CounterViewModel : StateViewModel<CounterState>(
     initialState = CounterState(),
     equals = { previous, current -> previous == current },
 ) {
-    val analytics: AnalyticsViewModel = viewModelBinding.read(analyticsSpec)
+    val analytics: AnalyticsViewModel
+        get() = viewModelBinding.read(analyticsSpec)
 
     fun increment(source: String) {
         analytics.track("increment from $source")
@@ -35,9 +36,10 @@ class AnalyticsViewModel : ViewModel() {
     }
 }
 
+// The demo intentionally shares both modules across several Android host types.
+// Ordinary feature-local specs should omit the key.
 val analyticsSpec = viewModelSpec(
     key = "analytics",
-    aliveForever = true,
 ) {
     AnalyticsViewModel()
 }
@@ -48,7 +50,8 @@ val counterSpec = viewModelSpec(key = "counter") {
 
 class PlainCounterController : AutoCloseable {
     private val scope = milu.viewmodel.ViewModelBindingScope()
-    private val counter = scope.viewModelBinding.read(counterSpec)
+    private val counter: CounterViewModel
+        get() = scope.viewModelBinding.read(counterSpec)
 
     fun incrementFromPlainClass() {
         counter.increment("plain class")

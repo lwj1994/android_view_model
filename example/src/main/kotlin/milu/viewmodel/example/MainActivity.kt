@@ -35,6 +35,8 @@ import milu.viewmodel.watchViewModel
 
 class MainActivity : FragmentActivity() {
     private val plainController = PlainCounterController()
+    private val counter: CounterViewModel
+        get() = viewModelBinding.watch(counterSpec)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,7 +97,7 @@ class MainActivity : FragmentActivity() {
                 .commitNow()
         }
 
-        val counter = viewModelBinding.watch(counterSpec)
+        title = "Count ${counter.state.count}"
         viewModelBinding.addUpdateListener {
             title = "Count ${counter.state.count}"
         }
@@ -164,18 +166,19 @@ class CounterFragment : Fragment() {
         view: android.view.View,
         savedInstanceState: Bundle?,
     ) {
-        val counter = viewLifecycleViewModelBinding.watch(counterSpec)
-        val activityCounter = activityViewModelBinding.read(counterSpec)
         val title = (view as LinearLayout).getChildAt(0) as TextView
         val button = view.getChildAt(1) as Button
 
+        fun counter(): CounterViewModel = viewLifecycleViewModelBinding.watch(counterSpec)
+        fun activityCounter(): CounterViewModel = activityViewModelBinding.read(counterSpec)
+
         fun render() {
-            title.text = "Fragment count: ${counter.state.count}"
+            title.text = "Fragment count: ${counter().state.count}"
         }
         render()
 
         button.setOnClickListener {
-            activityCounter.increment("fragment")
+            activityCounter().increment("fragment")
         }
         viewLifecycleViewModelBinding.addUpdateListener(::render)
     }
@@ -186,6 +189,8 @@ class CounterPanelView(context: android.content.Context) : LinearLayout(context)
     private val button = Button(context).apply {
         text = "View +1"
     }
+    private val counter: CounterViewModel
+        get() = viewModelBinding.watch(counterSpec)
 
     init {
         orientation = VERTICAL
@@ -196,8 +201,6 @@ class CounterPanelView(context: android.content.Context) : LinearLayout(context)
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        val counter = viewModelBinding.watch(counterSpec)
-
         fun render() {
             title.text = "Custom View count: ${counter.state.count}"
         }

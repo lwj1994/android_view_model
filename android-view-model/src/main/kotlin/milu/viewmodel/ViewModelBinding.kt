@@ -141,12 +141,24 @@ public open class ViewModelBinding {
         return { updateListeners.remove(id) }
     }
 
+    /**
+     * Primary resolution API. Resolves or creates from a stable spec/factory, establishes
+     * ownership, and subscribes to ViewModel notifications.
+     */
     public fun <VM : ViewModel> watch(factory: ViewModelFactory<VM>): VM =
         getViewModel(factory = factory, listen = true)
 
+    /**
+     * Primary resolution API. Resolves or creates from a stable spec/factory without subscribing
+     * to ViewModel notifications. Ownership and handle recreation/disposal observation remain.
+     */
     public fun <VM : ViewModel> read(factory: ViewModelFactory<VM>): VM =
         getViewModel(factory = factory, listen = false)
 
+    /**
+     * Advanced lookup-only API. Finds an already-created instance and subscribes to it.
+     * This never creates an instance; prefer [watch] with a stable spec for normal resolution.
+     */
     public inline fun <reified VM : ViewModel> watchCached(
         key: Any? = null,
         tag: Any? = null,
@@ -156,6 +168,10 @@ public open class ViewModelBinding {
         listen = true,
     )
 
+    /**
+     * Advanced lookup-only API. Finds an already-created instance without subscribing to its
+     * notifications. Prefer [read] with a stable spec for normal resolution.
+     */
     public inline fun <reified VM : ViewModel> readCached(
         key: Any? = null,
         tag: Any? = null,
@@ -165,16 +181,26 @@ public open class ViewModelBinding {
         listen = false,
     )
 
+    /**
+     * Advanced lookup-only API that returns `null` on a miss. Prefer [watch] with a stable spec.
+     */
     public inline fun <reified VM : ViewModel> maybeWatchCached(
         key: Any? = null,
         tag: Any? = null,
     ): VM? = runCatching { watchCached<VM>(key = key, tag = tag) }.getOrNull()
 
+    /**
+     * Advanced lookup-only API that returns `null` on a miss. Prefer [read] with a stable spec.
+     */
     public inline fun <reified VM : ViewModel> maybeReadCached(
         key: Any? = null,
         tag: Any? = null,
     ): VM? = runCatching { readCached<VM>(key = key, tag = tag) }.getOrNull()
 
+    /**
+     * Advanced lookup-only API. Returns and subscribes to every existing instance with [tag].
+     * Prefer spec-based resolution for normal dependencies.
+     */
     public inline fun <reified VM : ViewModel> watchCachesByTag(tag: Any): List<VM> {
         return watchCachesByTag(VM::class, tag)
     }
@@ -190,6 +216,10 @@ public open class ViewModelBinding {
         return vms
     }
 
+    /**
+     * Advanced lookup-only API. Returns every existing instance with [tag] without subscribing
+     * to ViewModel notifications. Prefer spec-based resolution for normal dependencies.
+     */
     public inline fun <reified VM : ViewModel> readCachesByTag(tag: Any): List<VM> {
         return readCachesByTag(VM::class, tag)
     }

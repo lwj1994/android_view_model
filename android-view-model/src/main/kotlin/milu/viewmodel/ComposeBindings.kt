@@ -59,6 +59,9 @@ public fun ViewModelBindingProvider(
     }
 }
 
+/**
+ * Primary Compose resolution API for reactive access through a stable spec/factory.
+ */
 @Composable
 @MainThread
 public fun <VM : ViewModel> watchViewModel(
@@ -79,6 +82,9 @@ public fun <VM : ViewModel> watchViewModel(
     }
 }
 
+/**
+ * Primary Compose resolution API for lifecycle-bound access without broad VM observation.
+ */
 @Composable
 @MainThread
 public fun <VM : ViewModel> readViewModel(
@@ -102,6 +108,9 @@ public fun <State, VM : StateViewModel<State>> watchViewModelState(
     return watchViewModel(factory, binding, *keys).state
 }
 
+/**
+ * Spec-based builder for normal Compose usage.
+ */
 @Composable
 @MainThread
 public fun <VM : ViewModel> ViewModelBuilder(

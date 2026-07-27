@@ -20,7 +20,9 @@ skills/android-view-model/                          AI Skill
 ## 核心不变式
 
 1. 稳定 spec 的 `watch/read` 是主入口；两者都会创建/获取、bind，并观察 handle
-   recreate/dispose，只有 `watch` 监听 VM 自身通知。
+   recreate/dispose，只有 `watch` 监听 VM 自身通知。即使 spec 带 key/tag，也继续
+   传 spec；cached API 只查询其他路径已创建的实例，是高级 escape hatch，不能与
+   主入口并列推荐。README、Skill、示例与公开 API 注释都必须保持这个优先级。
 2. identity 是解析 ViewModel 类型 + effective key。无 key 时，同一 binding 内
    同类型复用、不同 binding 隔离；显式 key 仅用于跨 binding 共享或同类型多实例。
 3. 默认使用受 binding 管理的非 singleton 模块，不要为普通 service 自动添加

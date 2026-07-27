@@ -7,6 +7,17 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-27
+
+### Documentation
+
+- Make stable specs plus `watch/read` the unambiguous default in the README,
+  bundled skill, project guidance, examples, and public API documentation.
+- Separate cached lookup into an advanced-only section and document its cache
+  miss, creation-order, identity, and cross-owner lifecycle coupling.
+- Replace stored ViewModel references in the sample with resolver properties
+  and remove unnecessary `aliveForever` retention.
+
 ## [0.2.1] - 2026-07-27
 
 ### Fixed

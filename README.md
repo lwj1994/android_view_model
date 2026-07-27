@@ -17,6 +17,11 @@ Instance identity is the resolved ViewModel type plus its effective key. An unke
 
 ## Core resolution rules
 
+> [!IMPORTANT]
+> The default path is always **stable spec → `watch(spec)` / `read(spec)`**.
+> A spec may contain a key or tag and should still be passed through these APIs;
+> knowing cache identity is not a reason to bypass the spec.
+
 - Keep specs stable and module-level. Use `watch(spec)` or `read(spec)` as the primary entry points in Compose, host classes, tests, and ViewModel-to-ViewModel dependencies.
 - `watch` and `read` both create or reuse an instance, establish lifecycle ownership, and observe handle recreation/disposal. Only `watch` listens to the ViewModel's own `notifyListeners()`.
 - Prefer binding-managed modules over global singletons. A normal feature, service, repository, or coordinator should use an unkeyed spec with `aliveForever = false`.
@@ -47,7 +52,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:v0.2.1")
+    implementation("com.github.lwj1994:android_view_model:v0.2.2")
 }
 ```
 
@@ -155,7 +160,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:v0.2.1")
+    implementation("android_view_model:android-view-model:v0.2.2")
 }
 ```
 
@@ -241,10 +246,29 @@ class CounterController : AutoCloseable {
 
 ## Binding access APIs
 
+### Primary: spec-based resolution (recommended)
+
+Normal application code should keep a stable spec and use one of these APIs:
+
 | API | Creates if absent? | Establishes ownership? | VM `notifyListeners()` | Handle recreate/dispose |
 |---|---:|---:|---:|---:|
 | `watch(spec)` | Yes | Yes | Yes | Yes |
 | `read(spec)` | Yes | Yes | No | Yes |
+
+Choose `watch` when ViewModel notifications should update the owner. Choose
+`read` for lifecycle-bound access without subscribing to those notifications.
+
+### Advanced: cached lookup
+
+> [!CAUTION]
+> Do not use cached lookup as a substitute for spec-based dependency
+> resolution. It reaches into an instance that another path must already have
+> created, couples the caller to cache identity, creation order, and another
+> owner's lifecycle, and cannot create a missing dependency. Use it only for an
+> intentional cross-owner query of an existing cache entry.
+
+| API | Creates if absent? | Establishes ownership? | VM `notifyListeners()` | Handle recreate/dispose |
+|---|---:|---:|---:|---:|
 | `watchCached<T>(key/tag)` | No | Yes | Yes | Yes |
 | `readCached<T>(key/tag)` | No | Yes | No | Yes |
 | `maybeWatchCached<T>` | No; returns `null` | Yes on hit | Yes | Yes |
@@ -252,7 +276,9 @@ class CounterController : AutoCloseable {
 | `watchCachesByTag<T>` | No; returns all hits | Yes | Yes | Yes |
 | `readCachesByTag<T>` | No; returns all hits | Yes | No | Yes |
 
-Normal application code should use `watch(spec)` or `read(spec)`. Cached APIs query an instance another path must already have created, coupling the caller to cache identity, creation order, and another owner's lifecycle. Single-result non-`maybe` lookups throw on a miss; tag lookup can be ambiguous when several instances share a tag.
+Single-result non-`maybe` lookups throw on a miss, and tag lookup can be
+ambiguous when several instances share a tag. If the caller has a spec—even a
+keyed or tagged spec—use `watch(spec)` / `read(spec)` instead.
 
 `listen`, `listenState`, and `listenStateSelect` resolve through `read`, are automatically removed when the binding disposes, and move to the replacement during `recreate`. Do not put a `listen` call in a repeatedly evaluated resolver property.
 

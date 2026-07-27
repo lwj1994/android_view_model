@@ -4,7 +4,9 @@ import androidx.annotation.MainThread
 import kotlin.reflect.KClass
 
 /**
- * Zero-argument ViewModel registration.
+ * Zero-argument ViewModel registration. Keep specs stable (normally at module/file scope) and
+ * pass them to [ViewModelBinding.watch] or [ViewModelBinding.read]; this is the primary
+ * resolution path.
  *
  * Every retained spec must configure a non-null explicit key when
  * [aliveForever] is true.

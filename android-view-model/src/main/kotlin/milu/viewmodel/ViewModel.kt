@@ -49,11 +49,19 @@ public open class ViewModel(
             ViewModelLifecycleRegistry.lifecycles -= lifecycle
         }
 
+        /**
+         * Advanced lookup-only API for an instance already created by another owner.
+         * Prefer [ViewModelBinding.read] with a stable spec for normal dependency resolution.
+         */
         public inline fun <reified VM : ViewModel> readCached(
             key: Any? = null,
             tag: Any? = null,
         ): VM = readCached(VM::class, key, tag)
 
+        /**
+         * Advanced lookup-only API that returns `null` on a miss.
+         * Prefer spec-based resolution in normal application code.
+         */
         public inline fun <reified VM : ViewModel> maybeReadCached(
             key: Any? = null,
             tag: Any? = null,
