@@ -370,6 +370,12 @@ The `example` module demonstrates all supported host styles:
 - Custom View with `viewModelBinding`
 - Plain class with `ViewModelBindingScope`
 
+The bundled skill also contains an English, multi-file
+[Instagram architecture example](./skills/android-view-model/examples/instagram_architecture/README.md).
+It demonstrates API, repository, feature-state, and startup-coordinator
+ViewModels composed through stable specs and resolver properties. The
+architecture example is intentionally excluded from the Gradle build.
+
 Build it with:
 
 ```bash

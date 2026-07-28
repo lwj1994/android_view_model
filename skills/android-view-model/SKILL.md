@@ -17,6 +17,9 @@ It intentionally does not implement Flutter/Apple `ObservableValue` APIs.
 - Public API and examples: [repository README](../../README.md)
 - Runtime behavior: `android-view-model/src/main/kotlin/milu/viewmodel/`
 - Contract tests: `android-view-model/src/test/kotlin/milu/viewmodel/`
+- Architecture example: `examples/instagram_architecture/README.md` — a
+  multi-file Instagram-style app composed from API, repository, user, feed,
+  post-detail, comment, and startup-coordinator ViewModels.
 - Conceptual upstream: Flutter `view_model` README and skill
 
 If this skill conflicts with the repository README or tests, follow the current
@@ -308,7 +311,8 @@ Run library verification serially:
 ```bash
 ./gradlew :android-view-model:testDebugUnitTest \
   :android-view-model:assembleDebug \
-  :android-view-model:lintDebug
+  :android-view-model:lintDebug \
+  --no-parallel --max-workers=1
 ```
 
 For Gradle dependencies, use `api` only when a dependency type appears in

@@ -7,6 +7,12 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Add an English, skill-local Instagram architecture example showing a
+  multi-root Compose app composed from API, repository, user, feed,
+  post-detail, comment, and startup-coordinator ViewModels.
+
 ## [0.3.0] - 2026-07-27
 
 ### Removed
