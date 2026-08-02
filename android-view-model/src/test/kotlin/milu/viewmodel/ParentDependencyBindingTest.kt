@@ -13,16 +13,14 @@ import org.junit.Test
 class ParentDependencyBindingTest {
     @Before
     fun setUp() {
-        InstanceManager.debugReset()
-        ViewModel.debugReset()
+        ViewModel.reset()
         RollbackChild.created = 0
         RollbackChild.disposed = 0
     }
 
     @After
     fun tearDown() {
-        InstanceManager.debugReset()
-        ViewModel.debugReset()
+        ViewModel.reset()
     }
 
     @Test

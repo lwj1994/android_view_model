@@ -8,7 +8,7 @@ import java.util.IdentityHashMap
 public class ViewModelBindingHandler {
     private val dependencyBindings = mutableListOf<ViewModelBinding>()
     private val refSources = IdentityHashMap<ViewModelBinding, MutableSet<Any>>()
-    private val ownerChangeListeners = mutableListOf<(
+    private val ownerChangeListeners = linkedMapOf<Any, (
         owners: List<String>,
         previousPrimaryOwner: String?,
         primaryOwner: String?,
@@ -45,8 +45,9 @@ public class ViewModelBindingHandler {
     internal fun addOwnerChangeListener(
         listener: (List<String>, String?, String?) -> Unit,
     ): () -> Unit {
-        ownerChangeListeners += listener
-        return { ownerChangeListeners.remove(listener) }
+        val id = Any()
+        ownerChangeListeners[id] = listener
+        return { ownerChangeListeners.remove(id) }
     }
 
     internal fun addRef(
@@ -97,7 +98,8 @@ public class ViewModelBindingHandler {
         if (ownerChangeListeners.isEmpty()) return
         val ids = dependencyBindings.map(ViewModelBinding::id)
         val currentPrimaryOwner = primaryOwner?.id
-        ownerChangeListeners.toList().forEach { listener ->
+        ownerChangeListeners.toList().forEach { (id, listener) ->
+            if (ownerChangeListeners[id] !== listener) return@forEach
             try {
                 listener(ids, previousPrimaryOwner, currentPrimaryOwner)
             } catch (error: Throwable) {

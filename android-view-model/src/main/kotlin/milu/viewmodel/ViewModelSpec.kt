@@ -19,36 +19,55 @@ public class ViewModelSpec<VM : ViewModel>(
     private val aliveForever: Boolean = false,
     private val builder: () -> VM,
 ) : ViewModelFactory<VM> {
-    private var proxy: ViewModelSpec<VM>? = null
+    private val proxyState = ViewModelSpecProxyState<ViewModelSpec<VM>>()
 
     public fun setProxy(spec: ViewModelSpec<VM>) {
         assertMainThread()
-        proxy = spec
+        proxyState.setProxy(spec)
     }
 
     public fun clearProxy() {
         assertMainThread()
-        proxy = null
+        proxyState.clearProxy()
     }
+
+    /** Installs an idempotently restorable scoped override. */
+    public fun overrideWith(spec: ViewModelSpec<VM>): () -> Unit {
+        assertMainThread()
+        return proxyState.overrideWith(spec)
+    }
+
+    /** Runs [block] with a coroutine-local override and always restores it. */
+    public suspend fun <Result> runWithOverride(
+        spec: ViewModelSpec<VM>,
+        block: suspend () -> Result,
+    ): Result = proxyState.runWithOverride(spec, block)
+
+    private val activeProxy: ViewModelSpec<VM>?
+        get() = proxyState.activeProxy
 
     override fun build(): VM {
         assertMainThread()
-        return (proxy ?: this).builder()
+        val active = activeProxy
+        return if (active == null) builder() else active.build()
     }
 
     override fun key(): Any? {
         assertMainThread()
-        return (proxy ?: this).key
+        val active = activeProxy
+        return if (active == null) key else active.key()
     }
 
     override fun tag(): Any? {
         assertMainThread()
-        return (proxy ?: this).tag
+        val active = activeProxy
+        return if (active == null) tag else active.tag()
     }
 
     override fun aliveForever(): Boolean {
         assertMainThread()
-        return (proxy ?: this).aliveForever
+        val active = activeProxy
+        return if (active == null) aliveForever else active.aliveForever()
     }
 }
 
@@ -73,21 +92,31 @@ public class ViewModelSpecWithArg<VM : ViewModel, A>(
     private val tag: ((A) -> Any?)? = null,
     private val aliveForever: ((A) -> Boolean)? = null,
 ) {
-    private var proxy: ViewModelSpecWithArg<VM, A>? = null
+    private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg<VM, A>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg<VM, A>) {
         assertMainThread()
-        proxy = spec
+        proxyState.setProxy(spec)
     }
 
     public fun clearProxy() {
         assertMainThread()
-        proxy = null
+        proxyState.clearProxy()
     }
+
+    public fun overrideWith(spec: ViewModelSpecWithArg<VM, A>): () -> Unit {
+        assertMainThread()
+        return proxyState.overrideWith(spec)
+    }
+
+    public suspend fun <Result> runWithOverride(
+        spec: ViewModelSpecWithArg<VM, A>,
+        block: suspend () -> Result,
+    ): Result = proxyState.runWithOverride(spec, block)
 
     public operator fun invoke(arg: A): ViewModelSpec<VM> {
         assertMainThread()
-        val active = proxy ?: this
+        val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
             modelClass = active.modelClass,
             key = active.key?.invoke(arg),
@@ -119,24 +148,34 @@ public class ViewModelSpecWithArg2<VM : ViewModel, A, B>(
     private val tag: ((A, B) -> Any?)? = null,
     private val aliveForever: ((A, B) -> Boolean)? = null,
 ) {
-    private var proxy: ViewModelSpecWithArg2<VM, A, B>? = null
+    private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg2<VM, A, B>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg2<VM, A, B>) {
         assertMainThread()
-        proxy = spec
+        proxyState.setProxy(spec)
     }
 
     public fun clearProxy() {
         assertMainThread()
-        proxy = null
+        proxyState.clearProxy()
     }
+
+    public fun overrideWith(spec: ViewModelSpecWithArg2<VM, A, B>): () -> Unit {
+        assertMainThread()
+        return proxyState.overrideWith(spec)
+    }
+
+    public suspend fun <Result> runWithOverride(
+        spec: ViewModelSpecWithArg2<VM, A, B>,
+        block: suspend () -> Result,
+    ): Result = proxyState.runWithOverride(spec, block)
 
     public operator fun invoke(
         arg1: A,
         arg2: B,
     ): ViewModelSpec<VM> {
         assertMainThread()
-        val active = proxy ?: this
+        val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
             modelClass = active.modelClass,
             key = active.key?.invoke(arg1, arg2),
@@ -168,17 +207,27 @@ public class ViewModelSpecWithArg3<VM : ViewModel, A, B, C>(
     private val tag: ((A, B, C) -> Any?)? = null,
     private val aliveForever: ((A, B, C) -> Boolean)? = null,
 ) {
-    private var proxy: ViewModelSpecWithArg3<VM, A, B, C>? = null
+    private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg3<VM, A, B, C>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg3<VM, A, B, C>) {
         assertMainThread()
-        proxy = spec
+        proxyState.setProxy(spec)
     }
 
     public fun clearProxy() {
         assertMainThread()
-        proxy = null
+        proxyState.clearProxy()
     }
+
+    public fun overrideWith(spec: ViewModelSpecWithArg3<VM, A, B, C>): () -> Unit {
+        assertMainThread()
+        return proxyState.overrideWith(spec)
+    }
+
+    public suspend fun <Result> runWithOverride(
+        spec: ViewModelSpecWithArg3<VM, A, B, C>,
+        block: suspend () -> Result,
+    ): Result = proxyState.runWithOverride(spec, block)
 
     public operator fun invoke(
         arg1: A,
@@ -186,7 +235,7 @@ public class ViewModelSpecWithArg3<VM : ViewModel, A, B, C>(
         arg3: C,
     ): ViewModelSpec<VM> {
         assertMainThread()
-        val active = proxy ?: this
+        val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
             modelClass = active.modelClass,
             key = active.key?.invoke(arg1, arg2, arg3),
@@ -218,17 +267,27 @@ public class ViewModelSpecWithArg4<VM : ViewModel, A, B, C, D>(
     private val tag: ((A, B, C, D) -> Any?)? = null,
     private val aliveForever: ((A, B, C, D) -> Boolean)? = null,
 ) {
-    private var proxy: ViewModelSpecWithArg4<VM, A, B, C, D>? = null
+    private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg4<VM, A, B, C, D>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg4<VM, A, B, C, D>) {
         assertMainThread()
-        proxy = spec
+        proxyState.setProxy(spec)
     }
 
     public fun clearProxy() {
         assertMainThread()
-        proxy = null
+        proxyState.clearProxy()
     }
+
+    public fun overrideWith(spec: ViewModelSpecWithArg4<VM, A, B, C, D>): () -> Unit {
+        assertMainThread()
+        return proxyState.overrideWith(spec)
+    }
+
+    public suspend fun <Result> runWithOverride(
+        spec: ViewModelSpecWithArg4<VM, A, B, C, D>,
+        block: suspend () -> Result,
+    ): Result = proxyState.runWithOverride(spec, block)
 
     public operator fun invoke(
         arg1: A,
@@ -237,7 +296,7 @@ public class ViewModelSpecWithArg4<VM : ViewModel, A, B, C, D>(
         arg4: D,
     ): ViewModelSpec<VM> {
         assertMainThread()
-        val active = proxy ?: this
+        val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
             modelClass = active.modelClass,
             key = active.key?.invoke(arg1, arg2, arg3, arg4),

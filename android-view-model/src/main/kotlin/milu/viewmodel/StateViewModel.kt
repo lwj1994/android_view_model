@@ -34,12 +34,31 @@ public open class StateViewModel<State>(
     public fun <R> listenStateSelect(
         selector: (State) -> R,
         onChanged: (R?, R) -> Unit,
+    ): () -> Unit = listenStateSelect(
+        selector = selector,
+        equals = null,
+        onChanged = onChanged,
+    )
+
+    public fun <R> listenStateSelect(
+        selector: (State) -> R,
+        equals: ((R, R) -> Boolean)?,
+        onChanged: (R?, R) -> Unit,
     ): () -> Unit {
         assertMainThread()
+        val globalEquals = ViewModel.config.equals
+        val effectiveEquals: (R, R) -> Boolean = equals ?: if (globalEquals == null) {
+            { previous, current -> previous == current }
+        } else {
+            { previous, current -> globalEquals(previous, current) }
+        }
         return listenState { previous, current ->
-            val previousSelected = previous?.let(selector)
+            // Every callback represents a real transition, so `previous` is
+            // the actual former state. It may itself be null when State is nullable.
+            @Suppress("UNCHECKED_CAST")
+            val previousSelected = selector(previous as State)
             val currentSelected = selector(current)
-            if (previousSelected != currentSelected) {
+            if (!effectiveEquals(previousSelected, currentSelected)) {
                 onChanged(previousSelected, currentSelected)
             }
         }
@@ -51,14 +70,22 @@ public open class StateViewModel<State>(
             viewModelLog { "${this::class.qualifiedName}: setState after disposed" }
             return
         }
-        if (isSameState(state, newState)) return
-        previousState = state
+        val transition = StateTransition(previous = state, current = newState)
+        val isSame = try {
+            isSameState(transition.previous, transition.current)
+        } catch (error: Throwable) {
+            reportViewModelError(error, ErrorType.Listener, "${this::class.qualifiedName} setState error")
+            return
+        }
+        if (isSame) return
+        previousState = transition.previous
         state = newState
 
-        val snapshot = stateListeners.values.toList()
-        snapshot.forEach { listener ->
+        val snapshot = stateListeners.toList()
+        snapshot.forEach { (id, listener) ->
+            if (stateListeners[id] !== listener) return@forEach
             try {
-                listener(previousState, state)
+                listener(transition.previous, transition.current)
             } catch (error: Throwable) {
                 reportViewModelError(error, ErrorType.Listener, "state listener error")
             }
@@ -81,3 +108,8 @@ public open class StateViewModel<State>(
         return previous === current
     }
 }
+
+private data class StateTransition<State>(
+    val previous: State,
+    val current: State,
+)

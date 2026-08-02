@@ -17,7 +17,11 @@ public object InstanceManager {
     internal fun <Value : Any> maybeGet(
         type: KClass<Value>,
         factory: InstanceFactory<Value>? = null,
-    ): Value? = runCatching { get(type, factory) }.getOrNull()
+    ): Value? = try {
+        get(type, factory)
+    } catch (_: ViewModelError) {
+        null
+    }
 
     internal fun <Value : Any> getHandle(
         type: KClass<Value>,

@@ -52,7 +52,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:v0.3.0")
+    implementation("com.github.lwj1994:android_view_model:v0.4.0")
 }
 ```
 
@@ -82,7 +82,7 @@ val counterSpec = viewModelSpec {
 
 - `key` participates in identity. Use it for intentional cross-binding sharing or multiple same-type instances in one binding.
 - `tag` is only a grouping/lookup label.
-- `aliveForever` skips automatic disposal when all ownership paths leave; explicit `recycle` and `InstanceManager.debugReset()` still force disposal.
+- `aliveForever` skips automatic disposal when all ownership paths leave; explicit `recycle` and the complete `ViewModel.reset()` still force disposal.
 - Every `aliveForever` spec must have an explicit key, whether resolved by a root binding or another ViewModel. A missing or computed-null key throws `ViewModelError` before the builder runs, and the Store enforces the same invariant for internal factories.
 
 Bind it to the host you are using.
@@ -160,7 +160,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:v0.3.0")
+    implementation("android_view_model:android-view-model:v0.4.0")
 }
 ```
 
@@ -194,13 +194,23 @@ val counterSpec = viewModelSpec {
 @Composable
 fun CounterScreen() {
     ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-        val counter = watchViewModel(counterSpec)
+        val count = selectViewModelState(
+            factory = counterSpec,
+            selector = { it.count },
+        )
+        val counter = readViewModel(counterSpec)
         Button(onClick = counter::increment) {
-            Text("${counter.state.count}")
+            Text("$count")
         }
     }
 }
 ```
+
+Use `watchViewModel(spec)` for broad ViewModel notifications,
+`readViewModel(spec)` for lifecycle-bound access without broad observation, and
+`selectViewModelState(spec, selector, equals?)` for typed fine-grained state
+observation. All three observe handle disposal; after `recycle`, Compose
+re-resolves the spec and stops returning the disposed generation.
 
 ### Activity / Fragment
 
@@ -280,6 +290,10 @@ Single-result non-`maybe` lookups throw on a miss, and tag lookup can be
 ambiguous when several instances share a tag. If the caller has a spec—even a
 keyed or tagged spec—use `watch(spec)` / `read(spec)` instead.
 
+The `maybe*Cached` variants convert only a `ViewModelError` miss to `null`.
+Programming errors and exceptions raised by key/tag implementations still
+propagate.
+
 `listen`, `listenState`, and `listenStateSelect` resolve through `read` and are automatically removed when the target handle or binding disposes. They are not migrated to another object. Do not put a `listen` call in a repeatedly evaluated resolver property.
 
 ## ViewModel-to-ViewModel dependencies
@@ -308,6 +322,9 @@ Getter declarations create nothing by themselves. After a child is resolved, the
 ## Lifecycle controls
 
 - `recycle(vm)` is a destructive global escape hatch. It removes every owner and disposes the shared object, including `aliveForever` instances.
+- `ViewModel.reset()` is the complete process-wide test reset. It force-disposes
+  all cached generations before clearing configuration and lifecycle observers;
+  nested reset attempts during teardown are ignored until that sequence ends.
 
 There is no in-place instance replacement API. To obtain an independent instance, use a new explicit key. If replacing the shared cached generation globally is intentional, call `recycle(vm)` and let resolver properties call `watch(spec)` / `read(spec)` again. The cache miss creates a new handle and dependency tree; owner paths, watch/listen subscriptions, and dependency edges are not migrated from the disposed object.
 
@@ -319,8 +336,37 @@ Construction and dependency graphs are checked. Recursive construction and runti
 
 - `setState` is the only operation that emits a state diff; `notifyListeners()` only reaches broad ViewModel listeners.
 - Full-state equality is constructor `equals` → `ViewModel.config.equals` → reference identity.
-- `listenStateSelect` compares selected values with Kotlin equality (`!=`). The current Android API does not expose Flutter's local selector-`equals` argument.
+- `listenStateSelect` and Compose `selectViewModelState` compare selected values with local `equals` → `ViewModel.config.equals` → Kotlin `==`.
+- Each `setState` captures an immutable previous/current transition before dispatch; nested synchronous state changes cannot rewrite the pair seen by later listeners.
 - For selector-level UI observation, obtain the ViewModel with a read-style API and let the selector own updates; do not add a broad `watch` subscription to the same instance.
+
+## Spec overrides
+
+Every zero- through four-argument spec supports scoped overrides. The restore
+callback from `overrideWith` is idempotent and supports nesting or out-of-order
+restore. Always restore manual overrides in `finally`:
+
+```kotlin
+val restore = counterSpec.overrideWith(fakeCounterSpec)
+try {
+    // Resolve counterSpec through a binding.
+} finally {
+    restore()
+}
+```
+
+For suspending work, prefer `runWithOverride`. It restores after success or
+failure and isolates overlapping coroutine scopes from one another:
+
+```kotlin
+counterSpec.runWithOverride(fakeCounterSpec) {
+    // The override remains active across suspension points in this scope.
+}
+```
+
+Legacy `setProxy` / `clearProxy` remains available. An active proxy owns its
+complete builder/key/tag/retention definition, including an explicit `null`
+key/tag or `false` `aliveForever` value.
 
 ## Threading
 
@@ -337,8 +383,8 @@ Use `viewModelScope` for async work and hop back to the main thread before mutat
   in downstream CI and do not add `--parallel` to the verification command.
 - Put constructor calls inside `viewModelSpec` builders and resolve managed instances through a test binding; do not instantiate a ViewModel directly in a test body or `setUp`.
 - Do not retain ViewModels in test fields. Use a getter backed by the test binding when a shared fixture is needed.
-- Dispose every binding, and reset `InstanceManager` / `ViewModel` between isolated tests.
-- Use `setProxy` / `clearProxy` in `try/finally` for mocks.
+- Dispose every binding, and call the complete `ViewModel.reset()` between isolated tests.
+- Prefer `runWithOverride` for coroutine-based mocks. If using `overrideWith`, invoke its restore callback in `finally`; legacy `setProxy` / `clearProxy` also requires `try/finally`.
 
 ```kotlin
 private lateinit var binding: ViewModelBinding
@@ -347,16 +393,14 @@ private val counter: CounterViewModel
 
 @Before
 fun setUp() {
-    InstanceManager.debugReset()
-    ViewModel.debugReset()
+    ViewModel.reset()
     binding = ViewModelBinding()
 }
 
 @After
 fun tearDown() {
     binding.dispose()
-    InstanceManager.debugReset()
-    ViewModel.debugReset()
+    ViewModel.reset()
 }
 ```
 

@@ -24,6 +24,7 @@ public open class ViewModel(
 ) : InstanceLifeCycle {
     public companion object {
         private val initialized = AtomicBoolean(false)
+        private var isResetting = false
 
         public val config: ViewModelConfig
             get() = ViewModelGlobalConfig.current
@@ -65,7 +66,11 @@ public open class ViewModel(
         public inline fun <reified VM : ViewModel> maybeReadCached(
             key: Any? = null,
             tag: Any? = null,
-        ): VM? = runCatching { readCached<VM>(key = key, tag = tag) }.getOrNull()
+        ): VM? = try {
+            readCached<VM>(key = key, tag = tag)
+        } catch (_: ViewModelError) {
+            null
+        }
 
         @PublishedApi
         internal fun <VM : ViewModel> readCached(
@@ -80,11 +85,34 @@ public open class ViewModel(
             )
         }
 
-        public fun debugReset() {
+        /**
+         * Completely resets the process-wide ViewModel runtime.
+         *
+         * Cached instances, including `aliveForever` instances, are disposed
+         * before configuration and lifecycle observers are cleared so cleanup
+         * errors still use the active error pipeline.
+         */
+        public fun reset() {
             assertMainThread()
-            initialized.set(false)
-            ViewModelGlobalConfig.reset()
-            ViewModelLifecycleRegistry.lifecycles.clear()
+            // Cover the entire reset. A nested reset from one generation's
+            // teardown must not clear the error/lifecycle pipeline while the
+            // outer reset is still disposing its remaining peers.
+            if (isResetting) return
+            isResetting = true
+            try {
+                InstanceManager.debugReset()
+                initialized.set(false)
+                ViewModelGlobalConfig.reset()
+                ViewModelLifecycleRegistry.lifecycles.clear()
+            } finally {
+                isResetting = false
+            }
+        }
+
+        /** Compatibility alias for older tests and tooling. */
+        @Deprecated("Use reset()", ReplaceWith("reset()"))
+        public fun debugReset() {
+            reset()
         }
     }
 
@@ -143,8 +171,9 @@ public open class ViewModel(
             return
         }
         runInViewModelUpdateTransaction {
-            val snapshot = listeners.values.toList()
-            snapshot.forEach { listener ->
+            val snapshot = listeners.toList()
+            snapshot.forEach { (id, listener) ->
+                if (listeners[id] !== listener) return@forEach
                 try {
                     listener()
                 } catch (error: Throwable) {

@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "io.github.lwj1994"
-version = "0.3.0"
+version = "0.4.0"
 
 val isJitPack = providers.environmentVariable("JITPACK")
     .map { it.equals("true", ignoreCase = true) }
@@ -20,7 +20,7 @@ val publishedGroupId = if (isJitPack) {
 val publishedVersion = if (isJitPack) {
     providers.environmentVariable("VERSION").get()
 } else {
-    "0.3.0"
+    "0.4.0"
 }
 
 val isPublishingToMavenCentral = gradle.startParameter.taskNames.any { taskName ->
@@ -35,6 +35,11 @@ android {
         minSdk = 23
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+    }
+
+    testOptions {
+        // Compose runtime tracing touches android.os.Trace in local JVM tests.
+        unitTests.isReturnDefaultValues = true
     }
 
     compileOptions {

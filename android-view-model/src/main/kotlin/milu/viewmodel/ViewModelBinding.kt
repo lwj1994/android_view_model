@@ -48,6 +48,7 @@ public open class ViewModelBinding {
     private val disposes = mutableListOf<() -> Unit>()
     private val subscriptions = mutableListOf<BindingSubscription>()
     private val updateListeners = linkedMapOf<String, () -> Unit>()
+    private val generationChangeListeners = linkedMapOf<String, () -> Unit>()
     private var hasMissedUpdates = false
 
     private val instanceController = AutoDisposeInstanceController(
@@ -76,6 +77,18 @@ public open class ViewModelBinding {
     )
 
     private fun handleInstanceChange() {
+        generationChangeListeners.toList().forEach { (id, listener) ->
+            if (generationChangeListeners[id] !== listener) return@forEach
+            try {
+                listener()
+            } catch (error: Throwable) {
+                reportViewModelError(
+                    error,
+                    ErrorType.Listener,
+                    "ViewModelBinding generation listener error",
+                )
+            }
+        }
         if (markViewModelBindingUpdated(this)) onUpdate()
     }
 
@@ -97,7 +110,8 @@ public open class ViewModelBinding {
 
     public open fun onUpdate() {
         assertMainThread()
-        updateListeners.values.toList().forEach { listener ->
+        updateListeners.toList().forEach { (id, listener) ->
+            if (updateListeners[id] !== listener) return@forEach
             try {
                 listener()
             } catch (error: Throwable) {
@@ -123,6 +137,13 @@ public open class ViewModelBinding {
         val id = UUID.randomUUID().toString()
         updateListeners[id] = listener
         return { updateListeners.remove(id) }
+    }
+
+    internal fun addGenerationChangeListener(listener: () -> Unit): () -> Unit {
+        assertMainThread()
+        val id = UUID.randomUUID().toString()
+        generationChangeListeners[id] = listener
+        return { generationChangeListeners.remove(id) }
     }
 
     /**
@@ -171,7 +192,11 @@ public open class ViewModelBinding {
     public inline fun <reified VM : ViewModel> maybeWatchCached(
         key: Any? = null,
         tag: Any? = null,
-    ): VM? = runCatching { watchCached<VM>(key = key, tag = tag) }.getOrNull()
+    ): VM? = try {
+        watchCached<VM>(key = key, tag = tag)
+    } catch (_: ViewModelError) {
+        null
+    }
 
     /**
      * Advanced lookup-only API that returns `null` on a miss. Prefer [read] with a stable spec.
@@ -179,7 +204,11 @@ public open class ViewModelBinding {
     public inline fun <reified VM : ViewModel> maybeReadCached(
         key: Any? = null,
         tag: Any? = null,
-    ): VM? = runCatching { readCached<VM>(key = key, tag = tag) }.getOrNull()
+    ): VM? = try {
+        readCached<VM>(key = key, tag = tag)
+    } catch (_: ViewModelError) {
+        null
+    }
 
     /**
      * Advanced lookup-only API. Returns and subscribes to every existing instance with [tag].
@@ -240,9 +269,29 @@ public open class ViewModelBinding {
         selector: (S) -> R,
         onChanged: (R?, R) -> Unit,
     ) {
+        listenStateSelect(
+            factory = factory,
+            selector = selector,
+            equals = null,
+            onChanged = onChanged,
+        )
+    }
+
+    public fun <S, R, VM : StateViewModel<S>> listenStateSelect(
+        factory: ViewModelFactory<VM>,
+        selector: (S) -> R,
+        equals: ((R, R) -> Boolean)?,
+        onChanged: (R?, R) -> Unit,
+    ) {
         assertMainThread()
         val vm = read(factory)
-        addSubscription(vm) { it.listenStateSelect(selector, onChanged) }
+        addSubscription(vm) {
+            it.listenStateSelect(
+                selector = selector,
+                equals = equals,
+                onChanged = onChanged,
+            )
+        }
     }
 
     public fun <VM : ViewModel> recycle(viewModel: VM) {
@@ -279,6 +328,7 @@ public open class ViewModelBinding {
         }
         disposes.clear()
         updateListeners.clear()
+        generationChangeListeners.clear()
         pauseController.dispose()
         instanceController.dispose()
     }
@@ -293,7 +343,11 @@ public open class ViewModelBinding {
         listen: Boolean,
     ): VM {
         assertMainThread()
-        check(!isDisposed) { "Cannot get ${factory.modelClass.qualifiedName}: binding is disposed." }
+        if (isDisposed) {
+            throw ViewModelError(
+                "Cannot get ${factory.modelClass.qualifiedName}: binding is disposed.",
+            )
+        }
         val configuredKey = factory.key()
         val aliveForever = factory.aliveForever()
         if (configuredKey == null && aliveForever) {
@@ -326,7 +380,11 @@ public open class ViewModelBinding {
         listen: Boolean,
     ): VM {
         assertMainThread()
-        check(!isDisposed) { "Cannot get ${modelClass.qualifiedName}: binding is disposed." }
+        if (isDisposed) {
+            throw ViewModelError(
+                "Cannot get ${modelClass.qualifiedName}: binding is disposed.",
+            )
+        }
         val vm = instanceController.getInstance(
             modelClass,
             InstanceFactory(arg = arg),

@@ -7,11 +7,53 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-02
+
 ### Added
 
 - Add an English, skill-local Instagram architecture example showing a
   multi-root Compose app composed from API, repository, user, feed,
   post-detail, comment, and startup-coordinator ViewModels.
+- Add nestable, idempotently restorable `overrideWith` and coroutine-isolated
+  `runWithOverride` APIs to zero- through four-argument ViewModel specs.
+- Add the strongly typed Compose `selectViewModelState` API with an optional
+  selector-local equality rule.
+
+### Changed
+
+- Make `ViewModel.reset()` the complete runtime reset: it force-disposes every
+  cached generation, including `aliveForever`, before clearing configuration
+  and lifecycle observers.
+- Align full-state and selector equality with Flutter: full state uses local,
+  global, then reference identity; selected values use local, global, then
+  Kotlin `==`.
+- Freeze each state transition before synchronous listener dispatch so a
+  reentrant `setState` cannot corrupt later listeners' previous/current pair.
+- Make Compose `watchViewModel` and `readViewModel` re-resolve after their
+  handle is recycled instead of retaining the disposed generation.
+- Make `maybe*Cached` return `null` only for `ViewModelError`; unrelated
+  exceptions now propagate to the caller.
+
+### Fixed
+
+- Skip listeners removed before their turn during the current notification.
+- Contain failures thrown by the configured error handler so later listeners
+  and disposal callbacks still run.
+- Preserve explicit `null` key/tag and `false` retention values from an active
+  legacy or scoped spec proxy instead of falling back to the base spec.
+- Guard the complete reset sequence against teardown-triggered nested resets so
+  remaining generations still use the outer error and lifecycle pipeline.
+- Throw `ViewModelError` consistently when resolving through a disposed
+  binding.
+- Keep read-style Compose resolution and typed selectors subscribed only to
+  generation changes, avoiding recomposition from unrelated watched
+  ViewModels on the same binding.
+
+### Tests
+
+- Add serial contract coverage for reset, maybe lookup errors, listener
+  mutation, reentrant state, equality fallback, secondary error handling, and
+  scoped spec overrides, plus Compose recycle and typed-selector behavior.
 
 ## [0.3.0] - 2026-07-27
 

@@ -79,7 +79,7 @@ A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
 - `tag` is only a grouping/lookup label.
 - A key does not retain an instance.
 - `aliveForever` only skips automatic disposal when ownership reaches zero.
-  Explicit `recycle` and `InstanceManager.debugReset()` still dispose it.
+  Explicit `recycle` and the complete `ViewModel.reset()` still dispose it.
 - Every `aliveForever` spec requires an explicit key, whether it is resolved by
   a root binding or another ViewModel. Resolution throws `ViewModelError`
   before calling the builder when the key is missing or computes to `null`; the
@@ -108,6 +108,7 @@ arguments are intended to share.
 | Compose local composition | `rememberViewModelBinding()` | Disposed when composition leaves. |
 | Compose broad rebuild | `watchViewModel(spec)` | Subscribes to VM notifications. |
 | Compose access without broad rebuild | `readViewModel(spec)` | Bound, no VM-wide subscription. |
+| Compose selected state | `selectViewModelState(spec, selector, equals?)` | Read-style ownership; recomposes only for selected changes. |
 | Activity / Fragment instance | `viewModelBinding.watch/read(spec)` | Cleared with host `ViewModelStore`. |
 | Fragment view lifecycle | `viewLifecycleViewModelBinding.watch/read(spec)` | Disposed with the Fragment view. |
 | Activity-shared Fragment access | `activityViewModelBinding.watch/read(spec)` | Uses Activity ownership. |
@@ -151,6 +152,9 @@ cross-owner state.
 Non-`maybe` single-result cached lookups throw on a miss. A single lookup by tag
 can be ambiguous and depends on cache creation order; use the batch API when a
 tag may match several instances.
+
+`maybeWatchCached` and `maybeReadCached` swallow only `ViewModelError` misses.
+They must not hide unrelated exceptions from key/tag code or the runtime.
 
 `listen`, `listenState`, and `listenStateSelect` are binding-owned side effects.
 They resolve through `read` and are removed when the target handle or binding is
@@ -210,6 +214,13 @@ class CheckoutViewModel : ViewModel() {
   dependency tree on the next access; do not migrate old relationships.
 - Always re-resolve through a property after `recycle`; a stored reference
   points to the disposed generation.
+- Compose `watchViewModel` and `readViewModel` observe handle disposal and
+  re-resolve their stable spec after recycle instead of retaining that disposed
+  generation.
+- `ViewModel.reset()` is the complete process-wide test reset: it force-disposes
+  every cached generation before clearing configuration and lifecycle observers.
+  The complete sequence is reentrancy-guarded so nested reset attempts from
+  teardown cannot clear the active error/lifecycle pipeline early.
 - Recursive construction and runtime ownership cycles throw `ViewModelError`.
   A failed build rolls back children created by its dependency scope.
 
@@ -225,11 +236,26 @@ owned resources with `addDispose` and let the framework invoke cleanup.
   `notifyListeners()` only reaches broad ViewModel listeners.
 - Full-state equality is constructor `equals` → global
   `ViewModel.config.equals` → reference identity.
-- `listenStateSelect` compares selected values with Kotlin equality (`!=`).
-  Unlike current Flutter `view_model`, it has no local selector-`equals`
-  argument.
+- `listenStateSelect` and Compose `selectViewModelState` compare selected values
+  with local `equals` → global `ViewModel.config.equals` → Kotlin `==`.
+- A state transition freezes its previous/current pair before listener dispatch;
+  a reentrant synchronous `setState` does not corrupt the pair delivered to
+  later listeners.
 - For selector-level observation, use a read-style resolution and let the
   selector/listener own updates instead of also adding a broad `watch`.
+
+## Scoped spec overrides
+
+Every zero- through four-argument spec supports `overrideWith` and
+`runWithOverride` in addition to legacy `setProxy` / `clearProxy`.
+
+- `overrideWith(fake)` returns an idempotent restore callback. It supports
+  nesting and out-of-order restore; invoke it in `finally`.
+- `runWithOverride(fake) { ... }` restores after success or failure, remains
+  active across suspension points, and isolates overlapping coroutine scopes.
+- An active proxy supplies the complete builder/key/tag/retention definition.
+  Its nullable key/tag and `false` retention values never fall back to the base
+  spec.
 
 ## Main-thread and host rules
 
@@ -270,8 +296,10 @@ owned resources with `addDispose` and let the framework invoke cleanup.
   instances through a test binding instead of constructing them directly.
 - Do not retain ViewModels in test fields; use a getter backed by the test
   binding.
-- Dispose every test binding and reset global state between cases.
-- Use `setProxy` / `clearProxy` in `try/finally` for mocks.
+- Dispose every test binding and call the complete `ViewModel.reset()` between cases.
+- Prefer `runWithOverride` for coroutine mocks. Invoke an `overrideWith` restore
+  callback in `finally`; legacy `setProxy` / `clearProxy` also requires
+  `try/finally`.
 
 ```kotlin
 private lateinit var binding: ViewModelBinding
@@ -280,16 +308,14 @@ private val feature: FeatureViewModel
 
 @Before
 fun setUp() {
-    InstanceManager.debugReset()
-    ViewModel.debugReset()
+    ViewModel.reset()
     binding = ViewModelBinding()
 }
 
 @After
 fun tearDown() {
     binding.dispose()
-    InstanceManager.debugReset()
-    ViewModel.debugReset()
+    ViewModel.reset()
 }
 ```
 
@@ -298,11 +324,10 @@ fun tearDown() {
 - Android host retention uses AndroidX `ViewModelStoreOwner`; business
   ViewModels remain framework-owned.
 - There is no `ObservableValue`, Flutter DevTools extension, `@GenSpec`
-  generator, scoped `overrideWith/runWithOverride`, route pause provider, or
-  ticker pause provider in this port.
+  generator, route pause provider, or ticker pause provider in this port.
 - Android exposes `viewModelScope` and strict main-thread assertions.
-- Selector equality currently uses Kotlin equality directly rather than
-  Flutter's optional local/global selector comparator chain.
+- Android coroutine context elements provide the async isolation that Flutter
+  implements with Zones for `runWithOverride`.
 
 ## Verification and dependency guidance
 

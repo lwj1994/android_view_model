@@ -27,7 +27,7 @@ skills/android-view-model/                          AI Skill
    同类型复用、不同 binding 隔离；显式 key 仅用于跨 binding 共享或同类型多实例。
 3. 默认使用受 binding 管理的非 singleton 模块，不要为普通 service 自动添加
    key 或 `aliveForever`。所有 `aliveForever` spec 都必须显式 key，root 与 nested
-   解析统一在 builder 执行前校验，底层 Store 也必须兜底；`recycle/debugReset`
+   解析统一在 builder 执行前校验，底层 Store 也必须兜底；`recycle/ViewModel.reset`
    仍可强制销毁。
 4. 每个 parent generation 延迟拥有稳定 dependency binding。它保活已解析 child、
    实时传播 root owners；direct 与多个 parent 路径按 source 独立释放。
@@ -41,6 +41,15 @@ skills/android-view-model/                          AI Skill
    不迁移旧对象关系。
 8. 所有公开 ViewModel API 都只能在主线程调用；业务 ViewModel 不继承 AndroidX
    `ViewModel`，AndroidX 只用于 host retention。
+9. `ViewModel.reset()` 是完整的进程级测试重置：先强制销毁所有 cached generation，
+   再清理 config 与 lifecycle；整个序列必须防重入，dispose 内嵌套 reset 不得提前
+   清空外层仍在使用的 error/lifecycle pipeline。不要再要求调用者分别 reset
+   InstanceManager。
+10. spec scoped override 必须保持嵌套、幂等/乱序 restore 与协程隔离；active proxy
+    的 null key/tag 与 false aliveForever 是完整覆盖值，不能回退 base。
+11. state equality 为 local → global → identity，selector equality 为 local → global
+    → Kotlin `==`；Compose typed selector 使用 read-style ownership，watch/read 在
+    recycle 后必须重新解析 generation。
 
 ## 测试规则
 
@@ -51,7 +60,7 @@ skills/android-view-model/                          AI Skill
 - ViewModel 构造调用必须放在 `viewModelSpec` builder 内；测试体和 `setUp()`
   不得直接实例化受管 ViewModel。
 - 不要把 ViewModel 存在测试字段；使用由测试 binding 解析的 getter。
-- 每个 binding 必须 dispose，并在用例间 reset `InstanceManager` 与 `ViewModel`。
+- 每个 binding 必须 dispose，并在用例间调用完整的 `ViewModel.reset()`。
 
 ## 验证命令
 

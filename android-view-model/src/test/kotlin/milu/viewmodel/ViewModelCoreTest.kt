@@ -13,40 +13,50 @@ import org.junit.Test
 class ViewModelCoreTest {
     @Before
     fun setUp() {
-        InstanceManager.debugReset()
-        ViewModel.debugReset()
+        ViewModel.reset()
     }
 
     @After
     fun tearDown() {
-        InstanceManager.debugReset()
-        ViewModel.debugReset()
+        ViewModel.reset()
     }
 
     @Test
     fun notifyListeners_firesEveryRegisteredCallback() {
-        val vm = CounterViewModel()
-        var a = 0
-        var b = 0
-        vm.listen { a += 1 }
-        vm.listen { b += 1 }
+        val spec = viewModelSpec { CounterViewModel() }
+        val binding = ViewModelBinding()
+        try {
+            val vm = binding.read(spec)
+            var a = 0
+            var b = 0
+            vm.listen { a += 1 }
+            vm.listen { b += 1 }
 
-        vm.notifyListeners()
+            vm.notifyListeners()
 
-        assertEquals(1, a)
-        assertEquals(1, b)
+            assertEquals(1, a)
+            assertEquals(1, b)
+        } finally {
+            binding.dispose()
+        }
     }
 
     @Test
     fun update_triggersNotifyListenersOnce() {
-        val vm = CounterViewModel()
-        var fired = 0
-        vm.listen { fired += 1 }
+        val spec = viewModelSpec { CounterViewModel() }
+        val binding = ViewModelBinding()
+        try {
+            val vm = binding.read(spec)
+            var fired = 0
+            vm.listen { fired += 1 }
 
-        vm.increment()
+            vm.increment()
 
-        assertEquals(1, vm.count)
-        assertEquals(1, fired)
+            assertEquals(1, vm.count)
+            assertEquals(1, fired)
+        } finally {
+            binding.dispose()
+        }
     }
 
     @Test
@@ -126,34 +136,46 @@ class ViewModelCoreTest {
 
     @Test
     fun stateViewModel_firesStateAndGeneralListeners() {
-        val vm = CounterStateViewModel()
-        val states = mutableListOf<Pair<CounterState?, CounterState>>()
-        var generalFired = 0
-        vm.listenState { previous, current -> states += previous to current }
-        vm.listen { generalFired += 1 }
+        val spec = viewModelSpec { CounterStateViewModel() }
+        val binding = ViewModelBinding()
+        try {
+            val vm = binding.read(spec)
+            val states = mutableListOf<Pair<CounterState?, CounterState>>()
+            var generalFired = 0
+            vm.listenState { previous, current -> states += previous to current }
+            vm.listen { generalFired += 1 }
 
-        vm.increment()
-        vm.increment()
+            vm.increment()
+            vm.increment()
 
-        assertEquals(2, states.size)
-        assertEquals(0, states[0].first?.count)
-        assertEquals(1, states[0].second.count)
-        assertEquals(1, states[1].first?.count)
-        assertEquals(2, states[1].second.count)
-        assertEquals(2, generalFired)
+            assertEquals(2, states.size)
+            assertEquals(0, states[0].first?.count)
+            assertEquals(1, states[0].second.count)
+            assertEquals(1, states[1].first?.count)
+            assertEquals(2, states[1].second.count)
+            assertEquals(2, generalFired)
+        } finally {
+            binding.dispose()
+        }
     }
 
     @Test
     fun listenStateSelect_onlyFiresWhenSelectedValueChanges() {
-        val vm = CounterStateViewModel()
-        var labelChanges = 0
-        vm.listenStateSelect(selector = { it.label }) { _, _ -> labelChanges += 1 }
+        val spec = viewModelSpec { CounterStateViewModel() }
+        val binding = ViewModelBinding()
+        try {
+            val vm = binding.read(spec)
+            var labelChanges = 0
+            vm.listenStateSelect(selector = { it.label }) { _, _ -> labelChanges += 1 }
 
-        vm.increment()
-        vm.increment()
-        vm.setLabel("hello")
+            vm.increment()
+            vm.increment()
+            vm.setLabel("hello")
 
-        assertEquals(1, labelChanges)
+            assertEquals(1, labelChanges)
+        } finally {
+            binding.dispose()
+        }
     }
 
     @Test

@@ -44,8 +44,31 @@ public fun reportViewModelError(
 ) {
     val handler = ViewModel.config.onError
     if (handler != null) {
-        handler(error, type)
+        try {
+            handler(error, type)
+        } catch (handlerError: Throwable) {
+            safeViewModelErrorLog(
+                message = "[$type] onError callback threw while reporting $context",
+                error = handlerError,
+            )
+            safeViewModelErrorLog(
+                message = "[$type] Original error from $context",
+                error = error,
+            )
+        }
     } else {
-        Log.e("AndroidViewModel", "[$type] $context", error)
+        safeViewModelErrorLog("[$type] $context", error)
+    }
+}
+
+private fun safeViewModelErrorLog(
+    message: String,
+    error: Throwable,
+) {
+    try {
+        Log.e("AndroidViewModel", message, error)
+    } catch (_: Throwable) {
+        // android.util.Log is unavailable in some local JVM test environments.
+        // Error reporting must never break the listener or disposal chain.
     }
 }

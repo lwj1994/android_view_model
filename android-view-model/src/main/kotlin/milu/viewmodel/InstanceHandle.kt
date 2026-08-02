@@ -136,7 +136,8 @@ internal class InstanceHandle<Value : Any>(
     }
 
     private fun notifyListeners() {
-        listeners.values.toList().forEach { listener ->
+        listeners.toList().forEach { (id, listener) ->
+            if (listeners[id] !== listener) return@forEach
             listener(this)
         }
     }
