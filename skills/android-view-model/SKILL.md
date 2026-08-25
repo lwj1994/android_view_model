@@ -100,6 +100,72 @@ Parameterized factories use `viewModelSpecWithArg` and
 `viewModelSpecWithArg2...4`. Prefer a key derived from arguments when equal
 arguments are intended to share.
 
+### Local scope: sharing one instance across screens
+
+A common case is for screen A to display data and screen B to edit it. Screen A
+must see B's changes when B closes; if both destinations are active, A should
+react to changes immediately. Prefer the same spec with an explicit key and
+default auto-disposal. Do not set `aliveForever = true` merely to share across
+screens:
+
+```kotlin
+class DraftViewModel(
+    val documentId: String,
+) : ViewModel() {
+    var title: String = ""
+        private set
+
+    fun updateTitle(value: String) = update {
+        title = value
+    }
+}
+
+val draftViewModelSpec = viewModelSpecWithArg<DraftViewModel, String>(
+    builder = ::DraftViewModel,
+    key = { documentId -> "draft:$documentId" },
+)
+
+@Composable
+fun PageA(documentId: String) {
+    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+        val draft = watchViewModel(draftViewModelSpec(documentId))
+        Text(draft.title)
+    }
+}
+
+@Composable
+fun PageB(documentId: String) {
+    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+        val draft = watchViewModel(draftViewModelSpec(documentId))
+        TextField(
+            value = draft.title,
+            onValueChange = draft::updateTitle,
+        )
+    }
+}
+```
+
+- A and B resolve the same instance because they use the same resolved
+  ViewModel type and key. There is no need to use a cached API to retrieve an
+  instance created by the other screen.
+- Both `watch(spec)` and `read(spec)` bind the instance to the current screen.
+  Use `watch` when the screen must react to ViewModel notifications; use `read`
+  when it only invokes methods.
+- While A and B both exist, each retained destination binding owns the instance.
+  Removing B releases only B's ownership, so A keeps the instance alive. When A
+  is also removed, the final ownership path leaves and the instance is
+  automatically disposed.
+- A `key` defines shared identity; it does not retain the instance forever. If
+  multiple edit flows can coexist, include a document or session ID in the key
+  so unrelated flows do not share state.
+- The resulting lifetime is the union of all participating screen scopes. This
+  is usually more appropriate than `aliveForever = true`. Use `aliveForever`
+  with an explicit key only when the instance must survive with zero bindings.
+- In Fragment navigation, use each destination Fragment's `viewModelBinding`
+  for the same behavior. Use `viewLifecycleViewModelBinding` only when sharing
+  should end as soon as that Fragment's view is destroyed; use
+  `activityViewModelBinding` only when Activity-wide ownership is intentional.
+
 ## Choosing a binding
 
 | Context | Recommended API | Lifecycle |
@@ -167,11 +233,17 @@ in a repeatedly evaluated resolver property.
   or `read(spec)`.
 - Preserve spec-based resolution in refactors and migrations. Never introduce a
   cached API merely because a key or tag is available.
+- For temporary sharing across screens or independent bindings, let every
+  participant resolve the same keyed spec with `watch` or `read`. Their bindings
+  collectively define the local lifetime, and the instance auto-disposes after
+  the final participant unbinds.
 - Show cached lookup only when the user explicitly needs an already-created
   cross-owner cache entry, and state that absence, creation order, tag
   multiplicity, and the other owner's lifecycle are part of the contract.
 - Default ordinary modules to an unkeyed spec with `aliveForever = false`; add a
   key or retention only when sharing or retention is intentional.
+- Prefer keyed, binding-scoped sharing over `aliveForever` when an instance only
+  needs to live while one or more participating screens are alive.
 
 ## ViewModel-to-ViewModel composition
 
