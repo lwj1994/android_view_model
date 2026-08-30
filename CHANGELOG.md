@@ -7,6 +7,34 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-30
+
+### Added
+
+- Add optional cross-process `StateViewModel` snapshot synchronization through
+  `ProcessStateStore`, versioned `ProcessStateRecord`, and the Android-specific
+  `ParcelableProcessStateStore` boundary.
+- Add a runnable three-process example using `MainActivity`, a `:remote`
+  Activity, and a non-exported `ContentProvider` in `:state_store`.
+- Document binding-scoped sharing across pages and distinguish it from Android
+  cross-process state transport in the README and bundled AI skill.
+- Add the bundled skill installation command near the start of the README.
+
+### Changed
+
+- Require `ProcessStateStore.observe()` to emit the current snapshot and every
+  accepted update as one continuous stream, eliminating the race between an
+  initial read and observation.
+- Use JDK 21 as the Gradle toolchain while retaining Java 17 bytecode
+  compatibility.
+
+### Tests
+
+- Cover initial process state, local writes, remote updates, echo prevention,
+  version ordering, and synchronization between distinct ViewModel instances.
+- Verify the example on an API 36 emulator with separate main, remote, and
+  state-store process IDs.
+
 ## [0.4.0] - 2026-08-02
 
 ### Added

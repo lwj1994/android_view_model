@@ -60,7 +60,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:v0.4.0")
+    implementation("com.github.lwj1994:android_view_model:v0.5.0")
 }
 ```
 
@@ -168,7 +168,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:v0.4.0")
+    implementation("android_view_model:android-view-model:v0.5.0")
 }
 ```
 
