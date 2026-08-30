@@ -15,6 +15,14 @@ Every functional unit can be a ViewModel: UI state, repositories, services, coor
 
 Instance identity is the resolved ViewModel type plus its effective key. An unkeyed spec uses a private key owned by the current binding, so repeated resolution of the same type reuses one instance inside that binding while different bindings remain isolated. Use explicit keys for cross-binding sharing or multiple instances of the same type in one binding.
 
+## Install Skill
+
+Install the bundled skill for AI coding agents before working with the library:
+
+```bash
+npx skills add https://github.com/lwj1994/android_view_model --skill android-view-model
+```
+
 ## Core resolution rules
 
 > [!IMPORTANT]
@@ -254,6 +262,110 @@ class CounterController : AutoCloseable {
 }
 ```
 
+## Local scope: sharing one instance across pages
+
+A common flow has page A displaying a draft and page B editing it. Both pages
+should resolve the same instance while either page remains in the navigation
+scope. Use one stable parameterized spec with an explicit key; do not use
+`aliveForever = true` merely to share across pages:
+
+```kotlin
+class DraftViewModel(
+    val documentId: String,
+) : ViewModel() {
+    var title: String = ""
+        private set
+
+    fun updateTitle(value: String) = update {
+        title = value
+    }
+}
+
+val draftViewModelSpec = viewModelSpecWithArg<DraftViewModel, String>(
+    builder = ::DraftViewModel,
+    key = { documentId -> "draft:$documentId" },
+)
+
+@Composable
+fun PageA(documentId: String) {
+    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+        val draft = watchViewModel(draftViewModelSpec(documentId))
+        Text(draft.title)
+    }
+}
+
+@Composable
+fun PageB(documentId: String) {
+    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+        val draft = watchViewModel(draftViewModelSpec(documentId))
+        TextField(
+            value = draft.title,
+            onValueChange = draft::updateTitle,
+        )
+    }
+}
+```
+
+- A and B share one instance because the resolved ViewModel type and key are
+  equal. They should both resolve the spec normally; cached lookup is not
+  needed.
+- `watch` and `read` both establish ownership. Use `watch` for a page that must
+  react to notifications and `read` when it only invokes methods.
+- The lifetime is the union of all participating page bindings. Closing B
+  releases only B; A keeps the instance alive. The final page leaving disposes
+  it automatically.
+- Include the document/session ID in the key when several edit flows may
+  coexist. A key defines identity; it does not retain the instance forever.
+- In Fragment navigation, use each Fragment's `viewModelBinding` for this
+  destination lifetime. Use `viewLifecycleViewModelBinding` only when ownership
+  should end with the Fragment view, and `activityViewModelBinding` only for an
+  intentionally Activity-wide scope.
+
+## Android process boundary: sharing state, not instances
+
+The keyed sharing above is process-local. Separate Android processes have
+different ART heaps, registries, coroutine scopes, listeners, and ViewModel
+instances. Matching ViewModel types and keys cannot share an object across
+processes.
+
+`ProcessStateStore` instead synchronizes versioned state snapshots:
+
+```text
+main process ViewModel ─┐
+                       ├── ContentProvider / Binder ── state-store process
+remote process ViewModel ┘
+```
+
+For Android IPC, make the state Parcelable—normally with `@Parcelize`—and use
+the constrained `ParcelableProcessStateStore` boundary:
+
+```kotlin
+@Parcelize
+data class ProcessCounterState(
+    val count: Int = 0,
+) : Parcelable
+```
+
+- `ProcessStateStore` synchronizes state only. It never shares a ViewModel
+  instance, lifecycle, coroutine, or listener across processes.
+- A real implementation must supply the IPC backend. Its `observe()` flow must
+  register for changes before reading the current record, emit that current
+  record when present, then emit every accepted change without a read/observe
+  gap.
+- Records carry `version` and `sourceId` so concurrent writers can reject older
+  snapshots and avoid echoing an applied remote state.
+- Parcelable is an IPC transport format, not a durable disk schema. If state
+  must survive termination of the state-store process, persist it separately
+  with an explicitly versioned format.
+- Keep an app-private Provider or Service non-exported unless external apps are
+  intentionally part of the protocol.
+
+The runnable [ProcessCounter example](./example/src/main/kotlin/milu/viewmodel/example/ProcessCounterExample.kt)
+uses a non-exported `ContentProvider` in `:state_store`, one Activity in the
+main process, and another in `:remote`. Its Provider stores state in memory, so
+the demo proves IPC synchronization but intentionally resets if the
+`:state_store` process dies.
+
 ## Binding access APIs
 
 ### Primary: spec-based resolution (recommended)
@@ -403,27 +515,6 @@ fun tearDown() {
     ViewModel.reset()
 }
 ```
-
-## Cross-process state example
-
-The example app includes a real three-process state transport:
-
-- `MainActivity` runs in the default app process.
-- `RemoteProcessActivity` runs in `:remote` and owns a different `ProcessCounterViewModel` instance.
-- `ProcessCounterStateProvider` runs in `:state_store` and is the single source of truth.
-
-`ProcessCounterState` uses Android's Parcelable transport:
-
-```kotlin
-@Parcelize
-data class ProcessCounterState(val count: Int = 0) : Parcelable
-```
-
-Both ViewModels use a `ParcelableProcessStateStore` backed by `ContentResolver.call`. Changes are
-broadcast with `ContentResolver.notifyChange` and observed through `ContentObserver`. Run the
-example, tap **Open :remote**, and increment the counter in either Activity; the other process
-receives the new state. The different process IDs shown on the two screens confirm that the
-ViewModel instances are not shared.
 
 ## Example
 

@@ -1,6 +1,6 @@
 ---
 name: android-view-model
-description: Use AndroidViewModel in Kotlin Android projects for state management, functional-module composition, dependency injection, automatic lifecycle, Compose/Activity/Fragment/View bindings, ViewModel-to-ViewModel dependencies, sharing, threading, and tests.
+description: Use AndroidViewModel in Kotlin Android projects for state management, functional-module composition, dependency injection, automatic lifecycle, Compose/Activity/Fragment/View bindings, ViewModel-to-ViewModel dependencies, process-local sharing, Android cross-process state synchronization, threading, and tests.
 ---
 
 # AndroidViewModel Skill
@@ -20,6 +20,8 @@ It intentionally does not implement Flutter/Apple `ObservableValue` APIs.
 - Architecture example: `examples/instagram_architecture/README.md` — a
   multi-file Instagram-style app composed from API, repository, user, feed,
   post-detail, comment, and startup-coordinator ViewModels.
+- Cross-process example:
+  `example/src/main/kotlin/milu/viewmodel/example/ProcessCounterExample.kt`
 - Conceptual upstream: Flutter `view_model` README and skill
 
 If this skill conflicts with the repository README or tests, follow the current
@@ -32,7 +34,8 @@ Use this skill when:
 - Code imports `milu.viewmodel.*` or uses `ViewModel`, `StateViewModel`,
   `ViewModelSpec`, `ViewModelBinding`, `watchViewModel`, or `readViewModel`.
 - The task concerns state, DI, module composition, lifecycle, sharing,
-  main-thread behavior, Compose/Activity/Fragment/View integration, or tests.
+  Android process boundaries, main-thread behavior,
+  Compose/Activity/Fragment/View integration, or tests.
 
 ## Resolution decision order (must follow)
 
@@ -100,7 +103,7 @@ Parameterized factories use `viewModelSpecWithArg` and
 `viewModelSpecWithArg2...4`. Prefer a key derived from arguments when equal
 arguments are intended to share.
 
-### Local scope: sharing one instance across screens
+### Local scope: sharing one instance across pages
 
 A common case is for screen A to display data and screen B to edit it. Screen A
 must see B's changes when B closes; if both destinations are active, A should
@@ -165,6 +168,45 @@ fun PageB(documentId: String) {
   for the same behavior. Use `viewLifecycleViewModelBinding` only when sharing
   should end as soon as that Fragment's view is destroyed; use
   `activityViewModelBinding` only when Activity-wide ownership is intentional.
+
+## Android process boundary: share state, never an instance
+
+Explicit keys share an instance only inside one Android process. Every process
+has its own ART heap, static registry, bindings, lifecycle, coroutine scopes,
+and ViewModel instances. Never claim that the same key creates one object
+across processes.
+
+Use `ProcessStateStore<State>` only when an app explicitly runs components in
+different processes and needs to synchronize `StateViewModel` snapshots:
+
+- Prefer `ParcelableProcessStateStore<State : Parcelable>` for Android Binder
+  or `Bundle` transport. State classes normally implement `Parcelable` through
+  `@Parcelize`.
+- The Store implementation supplies the actual IPC mechanism, such as a
+  non-exported `ContentProvider` or Binder Service. The interface itself is not
+  IPC.
+- `observe()` must register for changes before reading its initial snapshot,
+  emit the current record when present, and then emit every accepted update.
+  `StateViewModel` intentionally consumes this continuous stream rather than a
+  separate `read()` followed by `observe()`.
+- `ProcessStateRecord.version` and `sourceId` provide deterministic conflict
+  ordering and prevent remote updates from echoing back as local writes. The
+  IPC authority must reject older records and notify clients even when a
+  concurrent candidate loses, so that loser observes the winner.
+- This synchronizes state, not ViewModel identity, lifecycle, commands,
+  listeners, or coroutine jobs. Use Binder/AIDL command APIs separately when
+  remote method invocation is the actual requirement.
+- Parcelable is a transient IPC format. If the state must survive termination
+  of the authority process, add a durable, explicitly versioned persistence
+  format behind the Store.
+- Do not introduce cross-process synchronization for ordinary navigation or
+  sibling pages. Use the same keyed spec and binding-scoped ownership described
+  above.
+
+The runnable example uses three real processes: `MainActivity` in the default
+process, `RemoteProcessActivity` in `:remote`, and a non-exported
+`ProcessCounterStateProvider` in `:state_store`. Its in-memory Provider is an IPC
+demonstration, not process-death persistence.
 
 ## Choosing a binding
 
@@ -237,6 +279,9 @@ in a repeatedly evaluated resolver property.
   participant resolve the same keyed spec with `watch` or `read`. Their bindings
   collectively define the local lifetime, and the instance auto-disposes after
   the final participant unbinds.
+- Distinguish process-local instance sharing from Android cross-process state
+  synchronization. Recommend `ProcessStateStore` only for an explicit
+  multi-process requirement, and state that it never shares the instance.
 - Show cached lookup only when the user explicitly needs an already-created
   cross-owner cache entry, and state that absence, creation order, tag
   multiplicity, and the other owner's lifecycle are part of the contract.
@@ -356,6 +401,10 @@ Every zero- through four-argument spec supports `overrideWith` and
 10. Calling public APIs from a background thread.
 11. Forgetting to close a plain-class binding scope.
 12. Using a detach-scoped View binding for retained screen state.
+13. Claiming that an explicit key shares a ViewModel instance across Android
+    processes.
+14. Adding `ProcessStateStore` for ordinary page-to-page sharing that should use
+    a keyed spec.
 
 ## Tests and mocks
 
@@ -398,6 +447,9 @@ fun tearDown() {
 - There is no `ObservableValue`, Flutter DevTools extension, `@GenSpec`
   generator, route pause provider, or ticker pause provider in this port.
 - Android exposes `viewModelScope` and strict main-thread assertions.
+- Android can synchronize Parcelable `StateViewModel` snapshots across
+  processes through an app-provided `ProcessStateStore`; this is state
+  transport, not shared object identity.
 - Android coroutine context elements provide the async isolation that Flutter
   implements with Zones for `runWithOverride`.
 
