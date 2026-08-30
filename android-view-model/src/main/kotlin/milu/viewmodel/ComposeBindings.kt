@@ -62,7 +62,14 @@ public fun ViewModelBindingProvider(
 }
 
 /**
- * Primary Compose resolution API for reactive access through a stable spec/factory.
+ * Primary Compose resolution API for broad reactive access through a stable spec/factory.
+ *
+ * A [ViewModel.notifyListeners] call invalidates the composable scope that calls this
+ * function. Observation does not travel with the returned ViewModel reference: under
+ * Compose strong skipping, a child composable that receives the same ViewModel instance
+ * may be skipped. Never pass a ViewModel instance as a child composable parameter. Pass
+ * immutable render values and event callbacks instead, or let the consuming composable
+ * resolve the stable spec and call `watchViewModel` itself.
  */
 @Composable
 @MainThread

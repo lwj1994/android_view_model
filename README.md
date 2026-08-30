@@ -112,6 +112,24 @@ val scope = ViewModelBindingScope()
 val counter = scope.viewModelBinding.read(counterSpec)
 ```
 
+### Keep resolved ViewModels inside their ownership boundary
+
+**Do not pass a resolved `ViewModel` or `StateViewModel` instance across
+components, layers, hosts, bindings, or owner boundaries.** The stable spec is
+the shareable declaration; the resolved instance belongs to the binding graph
+and generation that resolved it.
+
+Passing the instance does not register a new owner path. The receiver can retain
+a disposed generation after `recycle`, outlive the binding that owns it, or keep
+the instance alive outside its intended lifecycle. Instead:
+
+- pass the stable spec and let each consumer resolve it through its own binding;
+- use resolver properties for ViewModel-to-ViewModel dependencies;
+- pass immutable render values and event callbacks across UI boundaries.
+
+An explicit key allows consumers to resolve the same managed instance; it is
+not permission to transport that instance between owners.
+
 ## Why not extend AndroidX ViewModel?
 
 The business `milu.viewmodel.ViewModel` intentionally does not extend AndroidX `ViewModel`.
@@ -217,8 +235,43 @@ fun CounterScreen() {
 Use `watchViewModel(spec)` for broad ViewModel notifications,
 `readViewModel(spec)` for lifecycle-bound access without broad observation, and
 `selectViewModelState(spec, selector, equals?)` for typed fine-grained state
-observation. All three observe handle disposal; after `recycle`, Compose
+observation. These APIs observe handle disposal; after `recycle`, Compose
 re-resolves the spec and stops returning the disposed generation.
+
+`watchViewModel` invalidates the composable scope that calls it. Observation is
+not carried by the returned ViewModel reference. With Compose strong skipping,
+a child that receives the same ViewModel instance may be skipped.
+
+The resolved-instance ownership rule is strict at composable boundaries:
+**never pass a `ViewModel` or `StateViewModel` instance as a child composable
+parameter.** A composable boundary accepts immutable render values and event
+callbacks, not a ViewModel:
+
+```kotlin
+@Composable
+fun DraftRoute() {
+    val draft = watchViewModel(draftSpec)
+    DraftContent(draft) // Forbidden: observation does not cross this boundary.
+}
+```
+
+Resolve and observe the stable spec in the consuming composable, or read render
+values in the watching scope and pass those values to the child:
+
+```kotlin
+@Composable
+fun DraftRoute() {
+    val draft = watchViewModel(draftSpec)
+    DraftContent(
+        title = draft.title,
+        onTitleChanged = draft::updateTitle,
+    )
+}
+```
+
+Values passed across a composable boundary must be immutable values or value
+snapshots. Passing the same mutable object reference preserves the same
+strong-skipping problem.
 
 ### Activity / Fragment
 

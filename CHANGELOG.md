@@ -7,6 +7,16 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Document that `watchViewModel` invalidates its calling composable scope and
+  that passing the same ViewModel reference does not transfer observation to a
+  child under Compose strong skipping.
+- Define resolved ViewModel instances as local to their ownership boundary.
+  Pass stable specs across owners and resolve them at the consumer; composable
+  boundaries accept immutable render values and event callbacks instead of VM
+  instances.
+
 ## [0.5.1] - 2026-08-30
 
 ### Fixed

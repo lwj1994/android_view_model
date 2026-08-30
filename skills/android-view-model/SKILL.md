@@ -52,6 +52,22 @@ Use this skill when:
 A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
 `watch` or `read`; knowing cache identity is not a reason to bypass the spec.
 
+## Resolved-instance ownership boundary (must follow)
+
+- Treat the stable spec as the shareable declaration and a resolved ViewModel
+  as local to the binding graph, owner path, and generation that resolved it.
+- Never pass a resolved `ViewModel` or `StateViewModel` instance across
+  components, layers, hosts, bindings, or owner boundaries, and flag this
+  pattern during review. Passing an instance does not register ownership for
+  the receiver; it can leave the receiver holding a disposed generation after
+  recycle, let the receiver outlive the owning binding, or retain the instance
+  beyond its intended lifecycle.
+- Pass the stable spec and resolve it at each consuming owner. Use resolver
+  properties for ViewModel-to-ViewModel dependencies. Across UI boundaries,
+  pass immutable render values and event callbacks.
+- An explicit key can make independent consumers resolve the same managed
+  instance. It does not make transporting the resolved instance safe.
+
 ## Core model
 
 - Any functional unit can be a ViewModel: UI state, service, repository,
@@ -349,6 +365,15 @@ owned resources with `addDispose` and let the framework invoke cleanup.
 - Choose `ViewModel` for commands/services or broad change events.
 - Choose `StateViewModel<State>` for immutable state and state diffs; neither is
   universally preferred.
+- The resolved-instance ownership rule is strict at composable boundaries:
+  never pass a `ViewModel` or `StateViewModel` instance as a child composable
+  parameter. A composable boundary accepts immutable render values and event
+  callbacks; alternatively, the consuming composable resolves the stable spec
+  and observes it itself.
+- `watchViewModel` invalidates only the composable scope that calls it. Under
+  Compose strong skipping, passing the same ViewModel reference to a child does
+  not transfer that observation. Pass immutable render values read in the
+  watching scope, or observe the stable spec at the consuming scope.
 - `setState` is the only operation that emits a state diff. A plain
   `notifyListeners()` only reaches broad ViewModel listeners.
 - Full-state equality is constructor `equals` → global
@@ -405,6 +430,10 @@ Every zero- through four-argument spec supports `overrideWith` and
     processes.
 14. Adding `ProcessStateStore` for ordinary page-to-page sharing that should use
     a keyed spec.
+15. Passing a resolved ViewModel instance across an ownership boundary instead
+    of passing its stable spec and resolving it at the consumer. For child
+    composables this also loses the `watchViewModel` observation under strong
+    skipping.
 
 ## Tests and mocks
 

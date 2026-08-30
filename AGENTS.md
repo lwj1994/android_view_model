@@ -50,6 +50,12 @@ skills/android-view-model/                          AI Skill
 11. state equality 为 local → global → identity，selector equality 为 local → global
     → Kotlin `==`；Compose typed selector 使用 read-style ownership，watch/read 在
     recycle 后必须重新解析 generation。
+12. 已解析的 `ViewModel` / `StateViewModel` 实例只能在解析它的 ownership 边界内
+    使用，禁止作为依赖或参数跨组件、分层、host、binding 或 owner 传递。可传递的
+    是稳定 spec；每个消费方必须通过自身 binding 或 resolver property 解析，从而
+    建立 owner 路径并在 recycle 后取得新 generation。Composable 边界只传不可变
+    渲染值与事件回调，禁止传 VM；`watchViewModel` 的观察关系不会随同一 VM 引用
+    跨越边界。
 
 ## 测试规则
 
