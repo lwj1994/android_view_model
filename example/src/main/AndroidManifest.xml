@@ -13,5 +13,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".RemoteProcessActivity"
+            android:exported="false"
+            android:process=":remote" />
+        <provider
+            android:name=".ProcessCounterStateProvider"
+            android:authorities="${applicationId}.process-counter-state"
+            android:exported="false"
+            android:process=":state_store" />
     </application>
 </manifest>

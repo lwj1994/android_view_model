@@ -1,6 +1,10 @@
 package milu.viewmodel
 
 import androidx.annotation.MainThread
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import kotlin.coroutines.CoroutineContext
 
@@ -13,6 +17,7 @@ public open class StateViewModel<State>(
     private val equals: ((State, State) -> Boolean)? = null,
     coroutineContext: CoroutineContext = kotlinx.coroutines.SupervisorJob() +
         kotlinx.coroutines.Dispatchers.Main.immediate,
+    private val processStateStore: ProcessStateStore<State>? = null,
 ) : ViewModel(coroutineContext) {
     public var state: State = initialState
         private set
@@ -23,6 +28,15 @@ public open class StateViewModel<State>(
     public val initialState: State = initialState
 
     private val stateListeners = linkedMapOf<String, (State?, State) -> Unit>()
+    private val processStateSourceId = UUID.randomUUID().toString()
+    private val processStateWriteMutex = Mutex()
+    private var processStateVersion: Long = 0
+    private var processStateOwnerId: String = ""
+    private var isApplyingProcessState: Boolean = false
+
+    init {
+        startProcessStateSync()
+    }
 
     public fun listenState(onChanged: (State?, State) -> Unit): () -> Unit {
         assertMainThread()
@@ -91,6 +105,7 @@ public open class StateViewModel<State>(
             }
         }
         notifyListeners()
+        publishProcessState(state)
     }
 
     override fun onDispose(arg: InstanceArg) {
@@ -106,6 +121,64 @@ public open class StateViewModel<State>(
         equals?.let { return it(previous, current) }
         ViewModel.config.equals?.let { return it(previous, current) }
         return previous === current
+    }
+
+    private fun startProcessStateSync() {
+        val store = processStateStore ?: return
+        viewModelScope.launch {
+            store.observe()
+                .catch { error ->
+                    reportViewModelError(error, ErrorType.Listener, "process state observe error")
+                }
+                .collect { record ->
+                    applyProcessState(record)
+                }
+        }
+    }
+
+    private fun applyProcessState(record: ProcessStateRecord<State>) {
+        assertMainThread()
+        if (!shouldAcceptProcessState(record)) return
+        processStateVersion = record.version
+        processStateOwnerId = record.sourceId
+        if (isSameState(state, record.state)) return
+        isApplyingProcessState = true
+        try {
+            setState(record.state)
+        } finally {
+            isApplyingProcessState = false
+        }
+    }
+
+    private fun shouldAcceptProcessState(record: ProcessStateRecord<State>): Boolean {
+        if (record.sourceId == processStateSourceId) return false
+        if (record.version < processStateVersion) return false
+        if (record.version == processStateVersion && record.sourceId <= processStateOwnerId) {
+            return false
+        }
+        return true
+    }
+
+    private fun publishProcessState(newState: State) {
+        val store = processStateStore ?: return
+        if (isApplyingProcessState) return
+
+        processStateVersion += 1
+        processStateOwnerId = processStateSourceId
+        val record = ProcessStateRecord(
+            state = newState,
+            version = processStateVersion,
+            sourceId = processStateSourceId,
+        )
+        viewModelScope.launch {
+            processStateWriteMutex.withLock {
+                try {
+                    store.write(record)
+                } catch (error: Throwable) {
+                    reportViewModelError(error, ErrorType.Lifecycle, "process state write error")
+                }
+            }
+        }
     }
 }
 

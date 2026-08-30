@@ -404,6 +404,27 @@ fun tearDown() {
 }
 ```
 
+## Cross-process state example
+
+The example app includes a real three-process state transport:
+
+- `MainActivity` runs in the default app process.
+- `RemoteProcessActivity` runs in `:remote` and owns a different `ProcessCounterViewModel` instance.
+- `ProcessCounterStateProvider` runs in `:state_store` and is the single source of truth.
+
+`ProcessCounterState` uses Android's Parcelable transport:
+
+```kotlin
+@Parcelize
+data class ProcessCounterState(val count: Int = 0) : Parcelable
+```
+
+Both ViewModels use a `ParcelableProcessStateStore` backed by `ContentResolver.call`. Changes are
+broadcast with `ContentResolver.notifyChange` and observed through `ContentObserver`. Run the
+example, tap **Open :remote**, and increment the counter in either Activity; the other process
+receives the new state. The different process IDs shown on the two screens confirm that the
+ViewModel instances are not shared.
+
 ## Example
 
 The `example` module demonstrates all supported host styles:

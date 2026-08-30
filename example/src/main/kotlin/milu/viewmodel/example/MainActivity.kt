@@ -138,6 +138,7 @@ private fun CounterScreen(onPlainClassClick: () -> Unit) {
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Divider()
+                ProcessCounterPanel(showOpenRemoteButton = true)
             }
         }
     }

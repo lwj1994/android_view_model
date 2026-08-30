@@ -1,5 +1,12 @@
 package milu.viewmodel
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,7 +16,9 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.coroutines.CoroutineContext
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ViewModelCoreTest {
     @Before
     fun setUp() {
@@ -179,6 +188,144 @@ class ViewModelCoreTest {
     }
 
     @Test
+    fun processStateStore_appliesInitialStoredState() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val store = FakeProcessStateStore(
+            ProcessStateRecord(
+                state = CounterState(count = 7),
+                version = 3,
+                sourceId = "remote",
+            ),
+        )
+
+        val vm = ProcessCounterStateViewModel(
+            store = store,
+            coroutineContext = dispatcher,
+        )
+        advanceUntilIdle()
+
+        assertEquals(7, vm.state.count)
+    }
+
+    @Test
+    fun processStateStore_writesLocalStateChanges() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val store = FakeProcessStateStore<CounterState>()
+        val vm = ProcessCounterStateViewModel(
+            store = store,
+            coroutineContext = dispatcher,
+        )
+        advanceUntilIdle()
+
+        vm.increment()
+        advanceUntilIdle()
+
+        assertEquals(1, store.writes.size)
+        assertEquals(CounterState(count = 1), store.writes.single().state)
+        assertEquals(1, store.writes.single().version)
+        assertTrue(store.writes.single().sourceId.isNotBlank())
+    }
+
+    @Test
+    fun processStateStore_appliesRemoteStateWithoutEcho() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val store = FakeProcessStateStore<CounterState>()
+        val vm = ProcessCounterStateViewModel(
+            store = store,
+            coroutineContext = dispatcher,
+        )
+        advanceUntilIdle()
+
+        store.emit(
+            ProcessStateRecord(
+                state = CounterState(count = 4),
+                version = 1,
+                sourceId = "remote",
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(4, vm.state.count)
+        assertTrue(store.writes.isEmpty())
+    }
+
+    @Test
+    fun processStateStore_ignoresOlderRemoteState() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val store = FakeProcessStateStore<CounterState>()
+        val vm = ProcessCounterStateViewModel(
+            store = store,
+            coroutineContext = dispatcher,
+        )
+        advanceUntilIdle()
+        vm.increment()
+        advanceUntilIdle()
+
+        store.emit(
+            ProcessStateRecord(
+                state = CounterState(count = 9),
+                version = 0,
+                sourceId = "remote",
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, vm.state.count)
+    }
+
+    @Test
+    fun processStateStore_sameStateStillAdvancesVersionClock() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val store = FakeProcessStateStore<CounterState>()
+        val vm = ProcessCounterStateViewModel(
+            store = store,
+            coroutineContext = dispatcher,
+        )
+        advanceUntilIdle()
+
+        store.emit(
+            ProcessStateRecord(
+                state = CounterState(),
+                version = 3,
+                sourceId = "remote-new",
+            ),
+        )
+        advanceUntilIdle()
+        store.emit(
+            ProcessStateRecord(
+                state = CounterState(count = 9),
+                version = 2,
+                sourceId = "remote-old",
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.count)
+    }
+
+    @Test
+    fun processStateStore_synchronizesSeparateViewModelInstances() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val store = FakeProcessStateStore<CounterState>()
+        val first = ProcessCounterStateViewModel(
+            store = store,
+            coroutineContext = dispatcher,
+        )
+        val second = ProcessCounterStateViewModel(
+            store = store,
+            coroutineContext = dispatcher,
+        )
+        advanceUntilIdle()
+
+        first.increment()
+        advanceUntilIdle()
+
+        assertFalse(first === second)
+        assertEquals(1, first.state.count)
+        assertEquals(1, second.state.count)
+    }
+
+    @Test
     fun proxy_replacesSpecBuilder() {
         val spec = viewModelSpec(key = "proxy") { CounterViewModel(label = "real") }
         spec.setProxy(viewModelSpec(key = "proxy") { CounterViewModel(label = "proxy") })
@@ -255,5 +402,41 @@ private class CounterStateViewModel : StateViewModel<CounterState>(
 
     fun setLabel(label: String) {
         setState(state.copy(label = label))
+    }
+}
+
+private class ProcessCounterStateViewModel(
+    store: ProcessStateStore<CounterState>,
+    coroutineContext: CoroutineContext,
+) : StateViewModel<CounterState>(
+    initialState = CounterState(),
+    equals = { previous, current -> previous == current },
+    coroutineContext = coroutineContext,
+    processStateStore = store,
+) {
+    fun increment() {
+        setState(state.copy(count = state.count + 1))
+    }
+}
+
+private class FakeProcessStateStore<State>(
+    private var current: ProcessStateRecord<State>? = null,
+) : ProcessStateStore<State> {
+    val writes = mutableListOf<ProcessStateRecord<State>>()
+    private val records = MutableStateFlow(current)
+
+    override suspend fun read(): ProcessStateRecord<State>? = current
+
+    override suspend fun write(record: ProcessStateRecord<State>) {
+        current = record
+        writes += record
+        records.value = record
+    }
+
+    override fun observe(): Flow<ProcessStateRecord<State>> = records.filterNotNull()
+
+    suspend fun emit(record: ProcessStateRecord<State>) {
+        current = record
+        records.emit(record)
     }
 }
