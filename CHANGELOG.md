@@ -7,6 +7,12 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-30
+
+### Fixed
+
+- Build JitPack releases with JDK 21 to match the configured Gradle toolchain.
+
 ## [0.5.0] - 2026-08-30
 
 ### Added
