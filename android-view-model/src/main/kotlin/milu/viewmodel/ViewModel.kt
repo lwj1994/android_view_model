@@ -146,7 +146,6 @@ public open class ViewModel(
             return dependencyBinding ?: ViewModelDependencyBinding(
                 parent = this,
                 parentHandler = refHandler,
-                onDependencyUpdate = ::handleDependencyUpdate,
             ).also { dependencyBinding = it }
         }
 
@@ -181,15 +180,6 @@ public open class ViewModel(
                 }
             }
         }
-    }
-
-    /** Called before a watched child notification is forwarded through this ViewModel. */
-    protected open fun onDependencyNotify(viewModel: ViewModel) {}
-
-    private fun handleDependencyUpdate(viewModel: ViewModel) {
-        if (isDisposed) return
-        onDependencyNotify(viewModel)
-        notifyListeners()
     }
 
     public fun update(block: () -> Unit) {

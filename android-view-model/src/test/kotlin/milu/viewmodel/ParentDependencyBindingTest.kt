@@ -89,7 +89,7 @@ class ParentDependencyBindingTest {
         owner.recycle(child)
 
         assertTrue(child.isDisposed)
-        assertEquals(1, parent.dependencyNotifications)
+        assertEquals(1, parent.notifications)
         assertEquals(1, owner.updates)
         assertNotSame(child, parent.child)
         owner.dispose()
@@ -103,14 +103,85 @@ class ParentDependencyBindingTest {
         owner.updates = 0
 
         child.emit()
-        assertEquals(0, parent.dependencyNotifications)
+        assertEquals(0, parent.notifications)
         assertEquals(0, owner.updates)
 
         assertSame(child, parent.watchedChild)
         child.emit()
-        assertEquals(1, parent.dependencyNotifications)
+        assertEquals(1, parent.notifications)
         assertEquals(1, owner.updates)
         owner.dispose()
+    }
+
+    @Test
+    fun watchedChild_doesNotRefreshReadOnlyRoot() {
+        val owner = CountingBinding()
+        try {
+            val parent = owner.read(parentSpec)
+
+            parent.watchedChild.emit()
+
+            assertEquals(1, parent.notifications)
+            assertEquals(0, owner.updates)
+        } finally {
+            owner.dispose()
+        }
+    }
+
+    @Test
+    fun explicitChildListener_isIndependentOfWatchAndDoesNotMigrateAfterRecycle() {
+        val owner = CountingBinding()
+        try {
+            val parent = owner.watch(parentSpec)
+            parent.listenToChild()
+            val child = parent.child
+
+            child.emit()
+            child.emit()
+
+            assertEquals(2, parent.listenCallbacks)
+            assertEquals(0, parent.notifications)
+            assertEquals(0, owner.updates)
+
+            owner.recycle(child)
+
+            assertTrue(child.isDisposed)
+            assertEquals(1, parent.notifications)
+            assertEquals(1, owner.updates)
+            val replacement = parent.child
+            assertNotSame(child, replacement)
+            replacement.emit()
+            assertEquals(2, parent.listenCallbacks)
+            assertEquals(1, parent.notifications)
+            assertEquals(1, owner.updates)
+        } finally {
+            owner.dispose()
+        }
+    }
+
+    @Test
+    fun explicitChildListener_isRemovedWhenParentDisposesButSharedChildSurvives() {
+        val owner = CountingBinding()
+        val otherOwner = ViewModelBinding()
+        try {
+            val parent = owner.watch(parentSpec)
+            otherOwner.read(sharedChildSpec)
+            parent.listenToSharedChild()
+            parent.sharedChild.emit()
+            assertEquals(1, parent.listenCallbacks)
+            assertEquals(0, owner.updates)
+
+            owner.dispose()
+
+            assertTrue(parent.isDisposed)
+            val survivingChild = otherOwner.read(sharedChildSpec)
+            assertFalse(survivingChild.isDisposed)
+            survivingChild.emit()
+            assertEquals(1, parent.listenCallbacks)
+        } finally {
+            owner.dispose()
+            otherOwner.dispose()
+        }
     }
 
     @Test
@@ -126,9 +197,9 @@ class ParentDependencyBindingTest {
 
         leaf.emit()
 
-        assertEquals(1, left.dependencyNotifications)
-        assertEquals(1, right.dependencyNotifications)
-        assertEquals(1, root.dependencyNotifications)
+        assertEquals(1, left.notifications)
+        assertEquals(1, right.notifications)
+        assertEquals(1, root.notifications)
         assertEquals(1, owner.updates)
         owner.dispose()
     }
@@ -260,7 +331,7 @@ private val aliveKeyedChildSpec = viewModelSpec(
 ) { ChildViewModel() }
 
 private class ParentViewModel : ViewModel() {
-    var dependencyNotifications = 0
+    var notifications = 0
     var listenCallbacks = 0
 
     val child: ChildViewModel
@@ -278,8 +349,12 @@ private class ParentViewModel : ViewModel() {
         viewModelBinding.listen(childSpec) { listenCallbacks += 1 }
     }
 
-    override fun onDependencyNotify(viewModel: ViewModel) {
-        dependencyNotifications += 1
+    fun listenToSharedChild() {
+        viewModelBinding.listen(sharedChildSpec) { listenCallbacks += 1 }
+    }
+
+    init {
+        listen { notifications += 1 }
     }
 }
 
@@ -296,12 +371,12 @@ private class CountingBinding : ViewModelBinding() {
 private val diamondLeafSpec = viewModelSpec(key = "diamond-leaf") { ChildViewModel() }
 
 private class DiamondBranch : ViewModel() {
-    var dependencyNotifications = 0
+    var notifications = 0
     val leaf: ChildViewModel
         get() = viewModelBinding.watch(diamondLeafSpec)
 
-    override fun onDependencyNotify(viewModel: ViewModel) {
-        dependencyNotifications += 1
+    init {
+        listen { notifications += 1 }
     }
 }
 
@@ -309,14 +384,14 @@ private val leftBranchSpec = viewModelSpec(key = "diamond-left") { DiamondBranch
 private val rightBranchSpec = viewModelSpec(key = "diamond-right") { DiamondBranch() }
 
 private class DiamondRoot : ViewModel() {
-    var dependencyNotifications = 0
+    var notifications = 0
     val left: DiamondBranch
         get() = viewModelBinding.watch(leftBranchSpec)
     val right: DiamondBranch
         get() = viewModelBinding.watch(rightBranchSpec)
 
-    override fun onDependencyNotify(viewModel: ViewModel) {
-        dependencyNotifications += 1
+    init {
+        listen { notifications += 1 }
     }
 }
 
