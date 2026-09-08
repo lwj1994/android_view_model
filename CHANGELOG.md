@@ -7,6 +7,15 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking:** Remove the `ViewModel.onDependencyNotify` override hook and
+  internal `onDependencyUpdate` callback plumbing. Use binding `listen`,
+  `listenState`, or `listenStateSelect` for business reactions, registered once
+  during initialization. `watch` still forwards child notifications through the
+  parent to watching bindings; `read` still does not observe child notifications.
+  Ownership and handle-disposal observation are unchanged.
+
 ### Changed
 
 - Document that `watchViewModel` invalidates its calling composable scope and
@@ -16,6 +25,12 @@ project follows [Semantic Versioning](https://semver.org/).
   Pass stable specs across owners and resolve them at the consumer; composable
   boundaries accept immutable render values and event callbacks instead of VM
   instances.
+
+### Tests
+
+- Assert dependency forwarding through ordinary listeners instead of an override
+  hook. Cover read-only root bindings, explicit business listeners, subscription
+  cleanup, and the absence of subscription migration after child recycle.
 
 ## [0.5.1] - 2026-08-30
 

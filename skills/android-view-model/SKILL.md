@@ -326,8 +326,19 @@ class CheckoutViewModel : ViewModel() {
 
 - A resolver declaration creates nothing until accessed.
 - Use `read` to call a child without bubbling its own notifications.
-- Use `watch` when a child update should call
-  `parent.onDependencyNotify(child)` and then notify the parent.
+- Use `watch` to automatically forward child notifications through the parent,
+  ultimately refreshing bindings that watch the parent. This remains distinct
+  from `read`; removing a hook does not remove the watch subscription.
+- There is no `onDependencyNotify` override hook. Business reactions use binding
+  `listen`, `listenState`, or `listenStateSelect`, registered once during
+  initialization, never in a resolver getter. Do not reintroduce a dependency
+  update callback as a substitute for those explicit subscriptions.
+- `listen*` uses read-style ownership and does not implicitly notify the parent.
+  Call `setState`, `update`, or `notifyListeners` explicitly when the business
+  reaction changes parent state that its consumers should observe.
+- Both `read` and `watch` preserve ownership and handle-disposal observation;
+  binding-owned `listen*` subscriptions end with their target handle or binding
+  and are not migrated to a replacement generation after recycle.
 - Every parent object generation lazily owns one stable dependency binding. It
   supplies a private child identity, keeps resolved children alive for at least
   the parent's lifetime, and mirrors current root owners in real time.
@@ -434,6 +445,8 @@ Every zero- through four-argument spec supports `overrideWith` and
     of passing its stable spec and resolving it at the consumer. For child
     composables this also loses the `watchViewModel` observation under strong
     skipping.
+16. Overriding the removed dependency notification hook, or treating `watch` and
+    `read` as interchangeable after its removal.
 
 ## Tests and mocks
 

@@ -1,0 +1,43 @@
+name: Android checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK packages
+        run: >-
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "platforms;android-36" "build-tools;35.0.0"
+      - name: Test, build, and lint serially
+        run: >-
+          bash ./gradlew :android-view-model:testDebugUnitTest
+          :android-view-model:assembleDebug :android-view-model:lintDebug
+          --no-parallel --max-workers=1 --stacktrace
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-check-reports
+          path: |
+            android-view-model/build/reports/
+            android-view-model/build/test-results/
+          if-no-files-found: ignore

@@ -86,46 +86,72 @@ public class LifecyclePauseProvider(
     }
 }
 
+/**
+ * Pauses while any provider is paused. Callbacks describe aggregate state transitions,
+ * not individual provider events; resuming one source cannot override another source.
+ */
 @MainThread
 public class PauseAwareController(
     private val onPause: () -> Unit,
     private val onResume: () -> Unit,
 ) {
     private val providers = linkedSetOf<ViewModelBindingPauseProvider>()
+    private var wasPaused = false
+    private var disposed = false
 
     public val isPaused: Boolean
         get() = providers.any { it.isPaused }
 
     public fun addProvider(provider: ViewModelBindingPauseProvider) {
         assertMainThread()
-        if (!providers.add(provider)) return
-        provider.setOnPauseChanged { paused ->
-            try {
-                if (paused) onPause() else onResume()
-            } catch (error: Throwable) {
-                reportViewModelError(error, ErrorType.PauseResume, "pause/resume callback error")
-            }
+        if (disposed) {
+            throw ViewModelError("Cannot add a pause provider after controller disposal.")
         }
-        if (provider.isPaused) onPause()
+        if (!providers.add(provider)) return
+        provider.setOnPauseChanged {
+            // A custom provider may still invoke its callback after removal.
+            if (provider in providers) notifyPauseChange()
+        }
+        notifyPauseChange()
     }
 
     public fun removeProvider(provider: ViewModelBindingPauseProvider) {
         assertMainThread()
         if (!providers.remove(provider)) return
-        provider.dispose()
-        if (!isPaused) onResume()
+        try {
+            provider.dispose()
+        } catch (error: Throwable) {
+            reportViewModelError(error, ErrorType.PauseResume, "pause provider dispose error")
+        }
+        notifyPauseChange()
     }
 
     public fun dispose() {
         assertMainThread()
+        if (disposed) return
+        disposed = true
         val snapshot = providers.toList()
         providers.clear()
+        wasPaused = false
         snapshot.forEach { provider ->
             try {
                 provider.dispose()
             } catch (error: Throwable) {
                 reportViewModelError(error, ErrorType.PauseResume, "pause provider dispose error")
             }
+        }
+    }
+
+    private fun notifyPauseChange() {
+        if (disposed) return
+        val paused = isPaused
+        if (wasPaused == paused) return
+        // Commit the transition before calling user code, which may re-enter the controller.
+        wasPaused = paused
+        try {
+            if (paused) onPause() else onResume()
+        } catch (error: Throwable) {
+            reportViewModelError(error, ErrorType.PauseResume, "pause/resume callback error")
         }
     }
 }

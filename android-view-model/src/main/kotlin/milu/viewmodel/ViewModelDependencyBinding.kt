@@ -6,7 +6,6 @@ import java.util.IdentityHashMap
 internal class ViewModelDependencyBinding(
     private val parent: ViewModel,
     parentHandler: ViewModelBindingHandler,
-    private val onDependencyUpdate: (ViewModel) -> Unit,
 ) : ViewModelBinding() {
     override val isDependencyBinding: Boolean = true
 
@@ -39,11 +38,12 @@ internal class ViewModelDependencyBinding(
     ) {
         dependencies.remove(handle)
         super.handleInstanceDetached(handle, viewModel)
-        notifyDependency(viewModel)
+        notifyParentAfterDetach()
     }
 
     override fun onViewModelUpdate(viewModel: ViewModel) {
-        onDependencyUpdate(viewModel)
+        // watch forwards refresh notifications; business reactions use explicit listen*.
+        if (!parent.isDisposed) parent.notifyListeners()
     }
 
     override fun onUpdate() {
@@ -64,15 +64,16 @@ internal class ViewModelDependencyBinding(
         dependencies.clear()
     }
 
-    private fun notifyDependency(viewModel: ViewModel) {
+    private fun notifyParentAfterDetach() {
         if (
             dependencyDisposed ||
+            parent.isDisposed ||
             InstanceManager.isResetting ||
             !markViewModelBindingUpdated(this)
         ) {
             return
         }
-        onDependencyUpdate(viewModel)
+        parent.notifyListeners()
     }
 
     private fun requireAcyclicDependency(dependency: ViewModel) {

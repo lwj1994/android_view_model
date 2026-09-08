@@ -33,8 +33,11 @@ skills/android-view-model/                          AI Skill
    实时传播 root owners；direct 与多个 parent 路径按 source 独立释放。
 5. 嵌套 ViewModel 与 host 中可能经历 recycle 的 ViewModel 必须通过
    resolver property 获取，不得使用 `by lazy`/stored reference 长期缓存。
-6. ViewModel 内 `read` 不冒泡 child 自身通知；`watch` 先调用
-   `parent.onDependencyNotify(child)` 再通知 parent。同步 graph 按 binding 去重。
+6. ViewModel 内 `read` 不冒泡 child 自身通知；`watch` 自动向 parent 传播通知，
+   最终触发监听 parent 的 binding 刷新。两者生命周期语义一致，但通知语义不同。
+   不提供依赖更新业务钩子；业务响应使用 binding 的 `listen/listenState/
+   listenStateSelect`，在初始化时注册一次，不放进 resolver getter。
+   同步 graph 按 binding 去重；`read/watch` 都继续观察 handle disposal。
 7. 不提供原位替换实例的 `recreate` API。需要独立新实例时使用显式新 key；若明确
    接受影响所有 owners，则先全局 `recycle`，再由 resolver getter 通过
    `watch/read(spec)` 走正常 cache-miss 路径创建新 handle 与 dependency tree，
@@ -90,3 +93,12 @@ AndroidViewModel 当前以 JitPack tag 为推荐分发方式：
 
 不要移动已经推送的 tag；需要修正时发布新版本。除非用户明确要求并且 Maven
 Central 凭据可用，否则不要额外执行 Maven Central 发布任务。
+
+## Host 与暂停边界
+
+- Retained binding 跟随 `ViewModelStore` 清理；每个生命周期暂停源则跟随它自己的
+  owner，在 `ON_DESTROY` 时从 controller 移除，不能只 dispose 后留下暂停状态。
+- 多暂停源按 OR 聚合。只有整体暂停状态发生变化才调用 `onPause/onResume`；
+  一个源恢复不能越过其他仍暂停的源，销毁 controller 也不能触发恢复回调。
+- 已销毁 binding 的所有实例查询都必须拒绝新增 ownership，包括按 tag 批量查询，
+  以及 binding 标记 disposed 后、controller 清理前的 teardown 重入。
