@@ -17,7 +17,7 @@ internal class AutoDisposeInstanceController(
         type: KClass<Value>,
         factory: InstanceFactory<Value>,
     ): Value {
-        if (disposed) {
+        if (disposed || binding.isDisposed) {
             throw ViewModelError("AutoDisposeInstanceController.getInstance() called after dispose.")
         }
         val factoryWithBinding = factory.copy(
@@ -33,6 +33,12 @@ internal class AutoDisposeInstanceController(
         type: KClass<Value>,
         tag: Any,
     ): List<Value> {
+        // The binding marks itself disposed before running user teardown callbacks.
+        // Reject reentrant lookups as well as calls after this controller is disposed,
+        // before any handle is bound or a ViewModel owner reference is added.
+        if (disposed || binding.isDisposed) {
+            throw ViewModelError("AutoDisposeInstanceController.getInstancesByTag() called after dispose.")
+        }
         val handles = InstanceManager.getHandlesByTag(tag, type)
         val result = mutableListOf<Value>()
         handles.forEach { handle ->

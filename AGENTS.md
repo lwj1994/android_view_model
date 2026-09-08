@@ -90,3 +90,12 @@ AndroidViewModel 当前以 JitPack tag 为推荐分发方式：
 
 不要移动已经推送的 tag；需要修正时发布新版本。除非用户明确要求并且 Maven
 Central 凭据可用，否则不要额外执行 Maven Central 发布任务。
+
+## Host 与暂停边界
+
+- Retained binding 跟随 `ViewModelStore` 清理；每个生命周期暂停源则跟随它自己的
+  owner，在 `ON_DESTROY` 时从 controller 移除，不能只 dispose 后留下暂停状态。
+- 多暂停源按 OR 聚合。只有整体暂停状态发生变化才调用 `onPause/onResume`；
+  一个源恢复不能越过其他仍暂停的源，销毁 controller 也不能触发恢复回调。
+- 已销毁 binding 的所有实例查询都必须拒绝新增 ownership，包括按 tag 批量查询，
+  以及 binding 标记 disposed 后、controller 清理前的 teardown 重入。

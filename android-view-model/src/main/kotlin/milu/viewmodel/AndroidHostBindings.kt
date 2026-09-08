@@ -5,25 +5,39 @@ import androidx.activity.ComponentActivity
 import androidx.annotation.MainThread
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.findViewTreeViewModelStoreOwner
-import java.util.Collections
 import java.util.WeakHashMap
 import androidx.lifecycle.ViewModel as AndroidXViewModel
 
-internal class ViewModelBindingHolder : AndroidXViewModel() {
+internal class ViewModelBindingHolder : AndroidXViewModel(), DefaultLifecycleObserver {
     val binding = ViewModelBinding()
-    private val attachedOwners = Collections.newSetFromMap(WeakHashMap<LifecycleOwner, Boolean>())
+    private val pauseProviders = WeakHashMap<LifecycleOwner, LifecyclePauseProvider>()
 
     fun attach(owner: LifecycleOwner) {
         assertMainThread()
-        if (!attachedOwners.add(owner)) return
-        binding.addPauseProvider(LifecyclePauseProvider(owner))
+        if (binding.isDisposed || owner.lifecycle.currentState == Lifecycle.State.DESTROYED) return
+        if (pauseProviders.containsKey(owner)) return
+        val provider = LifecyclePauseProvider(owner)
+        pauseProviders[owner] = provider
+        binding.addPauseProvider(provider)
+        owner.lifecycle.addObserver(this)
+    }
+
+    override fun onDestroy(owner: LifecycleOwner) {
+        assertMainThread()
+        owner.lifecycle.removeObserver(this)
+        // The binding can outlive an Activity across configuration changes. Disposing a
+        // provider alone leaves its last (paused) state in the controller; remove it too.
+        pauseProviders.remove(owner)?.let(binding::removePauseProvider)
     }
 
     override fun onCleared() {
+        pauseProviders.keys.toList().forEach { it.lifecycle.removeObserver(this) }
+        pauseProviders.clear()
         binding.dispose()
     }
 }
