@@ -33,8 +33,11 @@ skills/android-view-model/                          AI Skill
    实时传播 root owners；direct 与多个 parent 路径按 source 独立释放。
 5. 嵌套 ViewModel 与 host 中可能经历 recycle 的 ViewModel 必须通过
    resolver property 获取，不得使用 `by lazy`/stored reference 长期缓存。
-6. ViewModel 内 `read` 不冒泡 child 自身通知；`watch` 先调用
-   `parent.onDependencyNotify(child)` 再通知 parent。同步 graph 按 binding 去重。
+6. ViewModel 内 `read` 不冒泡 child 自身通知；`watch` 自动向 parent 传播通知，
+   最终触发监听 parent 的 binding 刷新。两者生命周期语义一致，但通知语义不同。
+   不提供依赖更新业务钩子；业务响应使用 binding 的 `listen/listenState/
+   listenStateSelect`，在初始化时注册一次，不放进 resolver getter。
+   同步 graph 按 binding 去重；`read/watch` 都继续观察 handle disposal。
 7. 不提供原位替换实例的 `recreate` API。需要独立新实例时使用显式新 key；若明确
    接受影响所有 owners，则先全局 `recycle`，再由 resolver getter 通过
    `watch/read(spec)` 走正常 cache-miss 路径创建新 handle 与 dependency tree，

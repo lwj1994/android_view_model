@@ -478,7 +478,35 @@ class CheckoutViewModel : ViewModel() {
 }
 ```
 
-Use `read` when the parent only calls the child. Use `watch` when child notifications should call `parent.onDependencyNotify(child)` and then notify the parent. Synchronous propagation is transaction-based, so diamond dependency graphs update each binding at most once.
+Use `read` when the parent only calls the child. Use `watch` to automatically
+forward child notifications through the parent, ultimately refreshing bindings
+that watch the parent. Removing the dependency-update hook does not make
+`read` and `watch` equivalent: their ownership is the same, but only `watch`
+subscribes to the child's own notifications. Both still observe handle disposal.
+Synchronous propagation is transaction-based, so diamond dependency graphs
+update each binding at most once.
+
+There is no `onDependencyNotify` override hook. For business reactions, register
+binding `listen`, `listenState`, or `listenStateSelect` once during
+initialization, not in a resolver getter. For example:
+
+```kotlin
+class CartChangeViewModel : ViewModel() {
+    var cartChanges = 0
+        private set
+
+    init {
+        viewModelBinding.listen(cartSpec) {
+            update { cartChanges += 1 }
+        }
+    }
+}
+```
+
+A binding-owned listener uses read-style ownership and does not automatically
+forward child notifications. In this example, `update` explicitly notifies about
+the parent's own changed value. Subscriptions are removed when their target
+handle or binding is disposed and are not migrated after recycle.
 
 A keyed parent can be shared by several root bindings. Roots joining or leaving are mirrored to already-resolved children without changing an unkeyed child's identity. Ownership paths are source-aware: one root may own a keyed child directly and through several parents, and releasing one path does not remove the others. Every `aliveForever` spec must use an explicit key at both root and nested resolution sites.
 
