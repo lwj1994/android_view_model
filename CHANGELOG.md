@@ -7,6 +7,20 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-09
+
+### Added
+
+- Add `binding.watchViewModel(spec)` and `binding.readViewModel(spec)` delegates
+  for existing fixed bindings. Keep deferred binding lambdas for lifecycle-bound
+  lookup, and distinguish both forms from Compose subscription APIs in the docs.
+- Add README badges for the latest release, JitPack, Android checks, and license.
+
+### Tests
+
+- Verify fixed binding delegates preserve generation resolution after recycle,
+  do not follow binding reassignment, and reject access after binding disposal.
+
 ## [0.7.0] - 2026-09-09
 
 ### Changed

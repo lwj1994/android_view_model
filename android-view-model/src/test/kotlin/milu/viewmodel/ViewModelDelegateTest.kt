@@ -24,7 +24,7 @@ class ViewModelDelegateTest {
         val spec = viewModelSpec { DelegateModel(++builds) }
         val binding = ViewModelBinding { updates++ }
         try {
-            val model by watchViewModel(spec) { binding }
+            val model by binding.watchViewModel(spec)
             assertEquals(0, builds)
             val first = model
             repeat(10) { assertSame(first, model) }
@@ -44,6 +44,33 @@ class ViewModelDelegateTest {
             assertEquals(2, builds)
         } finally {
             binding.dispose()
+        }
+    }
+
+    @Test
+    fun fixedBinding_doesNotFollowReassignment_butResolvesNewGenerations() {
+        val firstBinding = ViewModelBinding()
+        val secondBinding = ViewModelBinding()
+        var currentBinding = firstBinding
+        val spec = viewModelSpec { DelegateModel(1) }
+        try {
+            val fixed by currentBinding.readViewModel(spec)
+            val deferred by readViewModel(spec) { currentBinding }
+            val first = fixed
+            assertSame(first, deferred)
+            assertFalse(first.hasListeners)
+            currentBinding = secondBinding
+            assertSame(first, fixed)
+            assertNotSame(first, deferred)
+            firstBinding.recycle(first)
+            assertNotSame(first, fixed)
+            assertSame(firstBinding.read(spec), fixed)
+            firstBinding.dispose()
+            assertThrows(ViewModelError::class.java) { fixed }
+            assertFalse(deferred.isDisposed)
+        } finally {
+            firstBinding.dispose()
+            secondBinding.dispose()
         }
     }
 

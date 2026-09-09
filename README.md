@@ -1,5 +1,10 @@
 # AndroidViewModel
 
+[![Latest release](https://img.shields.io/github/v/release/lwj1994/android_view_model?label=release)](https://github.com/lwj1994/android_view_model/releases/latest)
+[![JitPack](https://jitpack.io/v/lwj1994/android_view_model.svg)](https://jitpack.io/#lwj1994/android_view_model)
+[![Android checks](https://github.com/lwj1994/android_view_model/actions/workflows/android-ci.yml/badge.svg?branch=main)](https://github.com/lwj1994/android_view_model/actions/workflows/android-ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+
 > Changelog: [CHANGELOG](./CHANGELOG.md) · Releases: [GitHub Releases](https://github.com/lwj1994/android_view_model/releases)
 
 AndroidViewModel is a ViewModel registry, module-composition, and DI layer.
@@ -60,7 +65,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:0.7.0")
+    implementation("com.github.lwj1994:android_view_model:0.7.1")
 }
 ```
 
@@ -116,7 +121,8 @@ val counter by readViewModel(counterSpec) { scope.viewModelBinding }
 
 Business code declares `val vm by watchViewModel(spec)` or `readViewModel(spec)`.
 Compose subscribes to notifications or generation changes during composition.
-Outside Compose, supply `{ viewModelBinding }`; ownership begins on first access.
+Outside Compose, choose a fixed binding receiver or a deferred binding lambda;
+ownership begins on first access.
 Internally, the delegate's `getValue()` calls binding `watch/read(spec)` on every
 access without caching the VM. After recycle, it resolves the current generation
 without waiting for recomposition.
@@ -141,6 +147,47 @@ can change, such as Fragment views and Views, retrieve the current binding insid
 the binding lambda. `watchViewModelState` and `selectViewModelState` still return
 render values, not VMs. Binding `watch/read` implements delegate resolution;
 cached APIs remain advanced queries only.
+
+### Fixed versus deferred bindings
+
+Use a receiver when the binding already exists and stays the same for the
+lifetime of the delegate:
+
+```kotlin
+val counter by binding.readViewModel(counterSpec)
+val observedCounter by binding.watchViewModel(counterSpec)
+```
+
+The receiver is captured when the delegate is declared. Each property access
+still resolves the current VM generation, so recycle works normally. Reassigning
+a variable named `binding` does not retarget an existing delegate; accessing it
+after its captured binding is disposed fails.
+
+Use a lambda when binding lookup must be deferred or the binding can change:
+
+```kotlin
+val counter by readViewModel(counterSpec) { viewLifecycleViewModelBinding }
+```
+
+This looks up the binding on each property access. Keep this form for Activity
+or Fragment properties initialized before their host binding is available,
+Fragment view lifecycles, reattached Views, test fields whose binding is assigned
+in setup, and nested VMs whose dependency binding should be created lazily.
+Both forms resolve the same instances when they use the same binding and spec;
+neither caches a VM.
+
+**Compose uses the top-level composable functions**, including when a local
+binding is already available:
+
+```kotlin
+val binding = rememberViewModelBinding()
+val counter by readViewModel(counterSpec, binding = binding)
+```
+
+`binding.readViewModel(spec)` and `binding.watchViewModel(spec)` do not establish
+Compose recomposition subscriptions. The top-level read function observes
+generation disposal; the top-level watch function also observes VM notifications.
+Do not replace these composable calls with receiver extensions for UI access.
 
 ### Keep resolved ViewModels inside their ownership boundary
 
@@ -216,7 +263,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:0.7.0")
+    implementation("android_view_model:android-view-model:0.7.1")
 }
 ```
 

@@ -37,3 +37,27 @@ public fun <VM : ViewModel> readViewModel(
     return ViewModelDelegate { binding().read(factory) }
 }
 
+/**
+ * Uses this fixed binding, resolving the current VM generation on every access.
+ * The binding must already be available and remain valid for the delegate's lifetime.
+ * Does not establish Compose observation; use the top-level composable overload there.
+ */
+@MainThread
+public fun <VM : ViewModel> ViewModelBinding.watchViewModel(
+    factory: ViewModelFactory<VM>,
+): ViewModelDelegate<VM> {
+    assertMainThread()
+    return ViewModelDelegate { watch(factory) }
+}
+
+/**
+ * Uses this fixed binding without observing VM notifications. Ownership and disposal
+ * observation are preserved, but this function does not establish Compose observation.
+ */
+@MainThread
+public fun <VM : ViewModel> ViewModelBinding.readViewModel(
+    factory: ViewModelFactory<VM>,
+): ViewModelDelegate<VM> {
+    assertMainThread()
+    return ViewModelDelegate { read(factory) }
+}

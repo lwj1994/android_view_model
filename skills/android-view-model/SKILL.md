@@ -43,7 +43,8 @@ Use this skill when:
    bindings, tests, and ViewModel-to-ViewModel dependencies.
 2. Declare `val vm by watchViewModel(spec)` when ViewModel notifications should
    update the owner, or `val vm by readViewModel(spec)` without broad observation.
-   Outside Compose, pass a binding lambda such as `{ viewModelBinding }`.
+   Outside Compose, use a fixed `binding.watchViewModel/readViewModel(spec)`
+   receiver or a deferred binding lambda as described below.
    Both delegates create/reuse, bind, and observe handle disposal, including
    force-recycle. Do not require handwritten getters in business code.
 3. Use a cached API only when the task explicitly requires an advanced
@@ -229,11 +230,18 @@ demonstration, not process-death persistence.
 
 - In Compose, use `val vm by watchViewModel(spec)` or `readViewModel(spec)`;
   these functions return delegates.
-- Hosts, plain classes, and nested VMs use
-  `val vm by watchViewModel(spec) { viewModelBinding }` or its read counterpart.
-  Plain classes can pass `{ scope.viewModelBinding }`.
-- Each access retrieves the current binding and resolves the VM without caching
-  an instance. Ownership starts on first access. Compose additionally resolves
+- For an existing fixed binding, prefer `val vm by binding.readViewModel(spec)`
+  or `binding.watchViewModel(spec)`. The receiver is captured at declaration;
+  reassigning the binding variable does not retarget the delegate.
+- For deferred or changing bindings, use
+  `val vm by readViewModel(spec) { viewModelBinding }` or its watch counterpart.
+  Keep this form for early Activity/Fragment properties, Fragment view lifecycle,
+  reattached Views, test fields initialized before setup, and lazy nested
+  dependency bindings.
+- Both forms resolve the VM on every access without caching an instance. With
+  the same binding and spec they are equivalent; fixed delegates reject access
+  after their captured binding is disposed, while a lambda can look up a new one.
+  Ownership starts on first access. Compose additionally resolves
   and subscribes during composition; callbacks after recycle can resolve the
   current generation without waiting for recomposition.
 - Do not use `by lazy`, `remember { vm }`, stored VM references, or cross-owner
@@ -243,6 +251,13 @@ demonstration, not process-death persistence.
   must stay within the original owner's lifetime.
 - `watchViewModelState/selectViewModelState` return render values. Binding
   `watch/read` implements resolution; cached APIs remain advanced queries.
+
+In Compose, keep using the top-level composable overload, even with a fixed local
+binding: `val vm by readViewModel(spec, binding = binding)` or its watch version.
+Receiver extensions do not establish Compose recomposition subscriptions and
+must not replace these calls for UI access. Avoid implicit-receiver forms such
+as `with(binding) { readViewModel(spec) }` in Compose, which can select the ordinary
+extension instead of the composable function.
 
 Internally, the delegate's `getValue()` resolves on each access. Business code
 does not need handwritten getters.
@@ -261,7 +276,7 @@ does not need handwritten getters.
 | Activity-shared Fragment access | `by watchViewModel(spec) { activityViewModelBinding }` | Uses Activity ownership. |
 | Custom View local scope | `by watchViewModel(spec) { viewModelBinding }` | Disposed on detach. |
 | View tree owner | `by watchViewModel(spec) { viewTreeViewModelBinding }` | Reuses nearest owner binding. |
-| Plain class / tests | `ViewModelBindingScope()` or `ViewModelBinding()` | Caller must close/dispose. |
+| Plain class / tests, existing fixed binding | `by binding.readViewModel(spec)` or watch counterpart | Caller must close/dispose. |
 
 Declare host ViewModels with `by` delegates:
 
@@ -312,7 +327,7 @@ inside a delegate's binding lambda; register listeners once during initializatio
 ## Response pattern for implementation requests
 
 - Default every normal resolution example to a stable spec plus
-  `by watchViewModel(spec)` or `by readViewModel(spec)`, with a binding lambda
+  `by watchViewModel(spec)` or `by readViewModel(spec)`, with a fixed receiver or deferred binding lambda
   outside Compose.
 - Preserve spec-based resolution in refactors and migrations. Never introduce a
   cached API merely because a key or tag is available.

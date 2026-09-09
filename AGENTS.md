@@ -40,8 +40,12 @@ skills/android-view-model/                        AI skill
    resolved children alive and propagates root owners in real time. Direct and
    multiple parent paths release ownership independently by source.
 5. Business VM properties use `by watchViewModel/readViewModel(spec)`. Outside
-   Compose, explicitly supply `{ viewModelBinding }`; the delegate retrieves the
-   current binding and resolves through `watch/read(spec)` on every access.
+   Compose, use `binding.watchViewModel/readViewModel(spec)` for an existing fixed
+   binding, or `{ viewModelBinding }` for deferred/changing bindings. Both resolve
+   through `watch/read(spec)` on every access. Keep deferred lookup for early host
+   initialization and lazy nested dependency bindings. Compose UI access uses
+   top-level composable functions, even with an explicit binding; receiver
+   extensions do not establish recomposition subscriptions.
    Do not cache instances with `by lazy` or stored references. Compose subscribes
    during composition; delegates do not cache VMs. Event callbacks use
    `{ vm.action() }`, not `vm::action`, which captures an instance immediately.
