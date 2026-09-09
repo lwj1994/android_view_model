@@ -62,8 +62,8 @@ public fun ViewModelBindingProvider(
 }
 
 /**
- * Compose 属性委托入口：使用 `val vm by watchViewModel(spec)`。
- * 组合期间建立刷新订阅；每次属性访问（包括事件回调）重新解析当前 generation。
+ * Compose delegate entry point: use `val vm by watchViewModel(spec)`.
+ * Subscribes during composition; every property access, including callbacks, resolves the current generation.
  *
  * A [ViewModel.notifyListeners] call invalidates the composable scope that calls this
  * function. Observation does not travel with a ViewModel resolved by the delegate: under
@@ -87,8 +87,8 @@ public fun <VM : ViewModel> watchViewModel(
 }
 
 /**
- * Compose 只读委托入口：使用 `val vm by readViewModel(spec)`。
- * 不监听 VM 自身通知，但观察 generation 销毁；每次属性访问重新解析。
+ * Compose read delegate entry point: use `val vm by readViewModel(spec)`.
+ * Observes generation disposal without VM notifications; resolves on every property access.
  */
 @Composable
 @MainThread
@@ -135,7 +135,7 @@ public fun <State, Selected, VM : StateViewModel<State>> selectViewModelState(
     vararg keys: Any?,
 ): Selected {
     val resolved by readViewModel(factory, binding, *keys)
-    // effect 必须订阅本次组合的 generation，清理也必须针对同一实例。
+    // The effect must subscribe to this composition's generation and clean up that same instance.
     val viewModel = resolved
     var selected by remember(viewModel, selector, equals, *keys) {
         mutableStateOf(

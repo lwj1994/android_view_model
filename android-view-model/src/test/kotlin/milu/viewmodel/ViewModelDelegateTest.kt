@@ -32,7 +32,7 @@ class ViewModelDelegateTest {
             model.notifyListeners()
             assertEquals(1, updates)
 
-            // 回调捕获委托，每次执行时解析，不捕获 first。
+            // The callback captures the delegate and resolves on each invocation, not the first instance.
             val callback = { model.generation }
             binding.recycle(first)
             assertEquals(2, callback())

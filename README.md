@@ -112,12 +112,14 @@ val scope = ViewModelBindingScope()
 val counter by readViewModel(counterSpec) { scope.viewModelBinding }
 ```
 
-### 统一使用属性委托
+### Use property delegates consistently
 
-业务侧统一使用 `val vm by watchViewModel(spec)` / `readViewModel(spec)`。
-Compose 中由组合阶段建立通知或 generation 订阅；非 Compose 中显式传入
-`{ viewModelBinding }`，在首次属性访问时才建立 ownership。委托内部的 `getValue()`（getter）在每次访问时调用底层
-binding 的 `watch/read(spec)`，不缓存 VM，recycle 后无需等待重组即可解析新 generation。
+Business code declares `val vm by watchViewModel(spec)` or `readViewModel(spec)`.
+Compose subscribes to notifications or generation changes during composition.
+Outside Compose, supply `{ viewModelBinding }`; ownership begins on first access.
+Internally, the delegate's `getValue()` calls binding `watch/read(spec)` on every
+access without caching the VM. After recycle, it resolves the current generation
+without waiting for recomposition.
 
 ```kotlin
 class PageViewModel : ViewModel() {
@@ -131,12 +133,14 @@ fun DraftScreen() {
 }
 ```
 
-事件回调使用 `{ vm.action() }`；`vm::action` 会立即读取并捕获当时的 VM。
-不要另存 `val cached = vm`、使用 `remember { vm }` 或跨 owner 传递委托。
-委托绑定声明时的稳定 spec 与 ownership 边界；旧回调不能跨 owner 生命周期使用。
-Fragment view、View 等 binding 会变化的场景，必须在 binding lambda 中获取当前 binding。
-`watchViewModelState` / `selectViewModelState` 继续返回渲染值，不返回 VM。
-底层 binding 的 `watch/read` 是委托使用的解析机制；cached API 仍仅用于高级查询。
+Use `{ vm.action() }` for event callbacks; `vm::action` immediately resolves and
+captures the current VM. Do not store `val cached = vm`, use `remember { vm }`, or
+pass delegates across owners. A delegate belongs to its declared stable spec and
+ownership boundary; old callbacks must not outlive that owner. For bindings that
+can change, such as Fragment views and Views, retrieve the current binding inside
+the binding lambda. `watchViewModelState` and `selectViewModelState` still return
+render values, not VMs. Binding `watch/read` implements delegate resolution;
+cached APIs remain advanced queries only.
 
 ### Keep resolved ViewModels inside their ownership boundary
 

@@ -1,81 +1,97 @@
 # AGENTS.md
 
-给 AI / 自动化工具使用的 AndroidViewModel 工程约束。
+AndroidViewModel project constraints for AI agents and automation tools.
 
-## 一句话说明
+## Overview
 
-AndroidViewModel 是 Flutter `view_model` 核心模型的 Android 实现：业务能力可
-建模为 ViewModel，通过稳定 spec 与 `by` 属性委托组合；binding graph 使用
-source-aware owner 路径管理生命周期，并在最后一条 owner 路径离开时自动销毁。
+AndroidViewModel is the Android implementation of Flutter `view_model`'s core
+model. Business capabilities are ViewModels composed through stable specs and
+`by` property delegates. The binding graph manages lifecycle through
+source-aware owner paths and disposes instances when their final owner path leaves.
 
-## 目录
+Write project documentation in English.
+
+## Layout
 
 ```text
-android-view-model/src/main/kotlin/milu/viewmodel/  核心 runtime 与 Android host 集成
-android-view-model/src/test/kotlin/milu/viewmodel/  单元与生命周期契约测试
-example/                                            Host 使用示例
-skills/android-view-model/                          AI Skill
+android-view-model/src/main/kotlin/milu/viewmodel/  Core runtime and Android hosts
+android-view-model/src/test/kotlin/milu/viewmodel/  Unit and lifecycle contract tests
+example/                                          Host usage examples
+skills/android-view-model/                        AI skill
 ```
 
-## 核心不变式
+## Core invariants
 
-1. 稳定 spec 的 `by watchViewModel/readViewModel` 是业务主入口；委托内部通过
-   binding 的 `watch/read` 创建/获取、bind，并观察 handle
-   disposal，只有 `watch` 监听 VM 自身通知。即使 spec 带 key/tag，也继续
-   传 spec；cached API 只查询其他路径已创建的实例，是高级 escape hatch，不能与
-   主入口并列推荐。README、Skill、示例与公开 API 注释都必须保持这个优先级。
-2. identity 是解析 ViewModel 类型 + effective key。无 key 时，同一 binding 内
-   同类型复用、不同 binding 隔离；显式 key 仅用于跨 binding 共享或同类型多实例。
-3. 默认使用受 binding 管理的非 singleton 模块，不要为普通 service 自动添加
-   key 或 `aliveForever`。所有 `aliveForever` spec 都必须显式 key，root 与 nested
-   解析统一在 builder 执行前校验，底层 Store 也必须兜底；`recycle/ViewModel.reset`
-   仍可强制销毁。
-4. 每个 parent generation 延迟拥有稳定 dependency binding。它保活已解析 child、
-   实时传播 root owners；direct 与多个 parent 路径按 source 独立释放。
-5. 业务侧统一通过 `by watchViewModel/readViewModel(spec)` 委托获取 VM；
-   非 Compose 显式传入 `{ viewModelBinding }`，由委托在每次访问时获取当前 binding 并通过
-   底层 `watch/read(spec)` 解析。不得使用 `by lazy`/stored reference 长期缓存。
-   Compose 在组合阶段订阅刷新，委托不缓存 VM；事件回调用 `{ vm.action() }`，
-   不得用会捕获旧实例的 `vm::action`。不要跨 owner 传递委托。
-6. ViewModel 内 `read` 不冒泡 child 自身通知；`watch` 自动向 parent 传播通知，
-   最终触发监听 parent 的 binding 刷新。两者生命周期语义一致，但通知语义不同。
-   不提供依赖更新业务钩子；业务响应使用 binding 的 `listen/listenState/
-   listenStateSelect`，在初始化时注册一次，不放进委托的 binding lambda。
-   同步 graph 按 binding 去重；`read/watch` 都继续观察 handle disposal。
-7. 不提供原位替换实例的 `recreate` API。需要独立新实例时使用显式新 key；若明确
-   接受影响所有 owners，则先全局 `recycle`，再次访问委托属性时由框架通过
-   `watch/read(spec)` 走正常 cache-miss 路径创建新 handle 与 dependency tree，
-   不迁移旧对象关系。
-8. 所有公开 ViewModel API 都只能在主线程调用；业务 ViewModel 不继承 AndroidX
-   `ViewModel`，AndroidX 只用于 host retention。
-9. `ViewModel.reset()` 是完整的进程级测试重置：先强制销毁所有 cached generation，
-   再清理 config 与 lifecycle；整个序列必须防重入，dispose 内嵌套 reset 不得提前
-   清空外层仍在使用的 error/lifecycle pipeline。不要再要求调用者分别 reset
-   InstanceManager。
-10. spec scoped override 必须保持嵌套、幂等/乱序 restore 与协程隔离；active proxy
-    的 null key/tag 与 false aliveForever 是完整覆盖值，不能回退 base。
-11. state equality 为 local → global → identity，selector equality 为 local → global
-    → Kotlin `==`；Compose typed selector 使用 read-style ownership，watch/read 在
-    recycle 后必须重新解析 generation。
-12. 已解析的 `ViewModel` / `StateViewModel` 实例只能在解析它的 ownership 边界内
-    使用，禁止作为依赖或参数跨组件、分层、host、binding 或 owner 传递。可传递的
-    是稳定 spec；每个消费方必须通过使用自身 binding 的 `by` 委托解析，从而
-    建立 owner 路径并在 recycle 后取得新 generation。Composable 边界只传不可变
-    渲染值与事件回调，禁止传 VM；`watchViewModel` 的观察关系不会随同一 VM 引用
-    跨越边界。
+1. Stable specs with `by watchViewModel/readViewModel` are the primary business
+   APIs. Delegates use binding `watch/read` to create/retrieve, bind, and observe
+   handle disposal; only `watch` observes VM notifications. Keep passing the spec
+   even with a key/tag. Cached APIs only query instances created by other paths;
+   they are advanced escape hatches, not equally recommended entry points.
+   Preserve this priority in the README, skill, examples, and public API comments.
+2. Identity is the resolved ViewModel type plus effective key. Unkeyed instances
+   are reused by type within one binding and isolated across bindings. Explicit
+   keys are for cross-binding sharing or multiple instances of the same type.
+3. Default to binding-managed non-singleton modules. Do not automatically add
+   keys or `aliveForever` to ordinary services. Every `aliveForever` spec requires
+   an explicit key, validated before the builder for both root and nested
+   resolution, with a Store-level safeguard. `recycle/ViewModel.reset` can still
+   force disposal.
+4. Each parent generation lazily owns one stable dependency binding. It keeps
+   resolved children alive and propagates root owners in real time. Direct and
+   multiple parent paths release ownership independently by source.
+5. Business VM properties use `by watchViewModel/readViewModel(spec)`. Outside
+   Compose, explicitly supply `{ viewModelBinding }`; the delegate retrieves the
+   current binding and resolves through `watch/read(spec)` on every access.
+   Do not cache instances with `by lazy` or stored references. Compose subscribes
+   during composition; delegates do not cache VMs. Event callbacks use
+   `{ vm.action() }`, not `vm::action`, which captures an instance immediately.
+   Do not pass delegates across owners.
+6. Within a ViewModel, `read` does not bubble child notifications; `watch`
+   automatically forwards them to the parent and ultimately its watching
+   bindings. Their lifecycle semantics match, but notification semantics differ.
+   There is no dependency-update business hook. Register binding
+   `listen/listenState/listenStateSelect` once during initialization, never in a
+   delegate's binding lambda. Synchronous graphs deduplicate updates by binding;
+   both `read/watch` still observe handle disposal.
+7. Do not introduce an in-place `recreate` API. Use a new explicit key for an
+   independent instance. If affecting all owners is intentional, globally
+   `recycle` first; the next delegated access uses the normal `watch/read(spec)`
+   cache-miss path to create a new handle and dependency tree. Do not migrate
+   relationships from the old object.
+8. All public ViewModel APIs are main-thread only. Business ViewModels do not
+   extend AndroidX `ViewModel`; AndroidX is only for host retention.
+9. `ViewModel.reset()` is the complete process-wide test reset: force-dispose all
+   cached generations before clearing config and lifecycle. Guard the entire
+   sequence against reentrancy so a nested reset during disposal cannot clear
+   the outer operation's error/lifecycle pipeline prematurely. Do not require
+   callers to reset InstanceManager separately.
+10. Scoped spec overrides preserve nesting, idempotent/out-of-order restoration,
+    and coroutine isolation. An active proxy's null key/tag and false
+    aliveForever are complete overrides, not fallbacks to the base spec.
+11. State equality is local → global → identity; selector equality is local →
+    global → Kotlin `==`. Compose typed selectors use read-style ownership.
+    Watch/read must resolve the current generation after recycle.
+12. Resolved `ViewModel` / `StateViewModel` instances stay within the ownership
+    boundary that resolved them. Never pass them as dependencies or arguments
+    across components, layers, hosts, bindings, or owners. Pass stable specs;
+    each consumer resolves through a `by` delegate using its own binding to
+    establish ownership and retrieve new generations after recycle. Composable
+    boundaries accept immutable render values and event callbacks, not VMs.
+    `watchViewModel` observation does not travel with a shared VM reference.
 
-## 测试规则
+## Test rules
 
-- 测试必须单线程、单 JVM fork、按 runner 顺序执行。禁止 parallel fork、测试
-  分片或 concurrent runner；registry、config、lifecycle、reset 与 spec proxy
-  都是进程级状态。
-- `android-view-model/build.gradle.kts` 中的 `maxParallelForks = 1` 不得移除。
-- ViewModel 构造调用必须放在 `viewModelSpec` builder 内；测试体和 `setUp()`
-  不得直接实例化受管 ViewModel。
-- 不要把 ViewModel 存在测试字段；使用 `by readViewModel(spec) { binding }` 委托属性。
-- 每个 binding 必须 dispose，并在用例间调用完整的 `ViewModel.reset()`。
+- Run tests on one thread, in one JVM fork, in runner order. No parallel forks,
+  sharding, or concurrent runners: registry, config, lifecycle, reset, and spec
+  proxy state are process-wide.
+- Keep `maxParallelForks = 1` in `android-view-model/build.gradle.kts`.
+- Put ViewModel constructors inside `viewModelSpec` builders. Do not directly
+  construct managed ViewModels in test bodies or `setUp()`.
+- Do not store resolved ViewModels in test fields. Use
+  `by readViewModel(spec) { binding }` properties.
+- Dispose every binding and call the complete `ViewModel.reset()` between cases.
 
-## 验证命令
+## Verification
 
 ```bash
 ./gradlew :android-view-model:testDebugUnitTest \
@@ -84,25 +100,30 @@ skills/android-view-model/                          AI Skill
   --no-parallel --max-workers=1
 ```
 
-不要给验证命令添加 `--parallel`。
+Do not add `--parallel`.
 
-## 发布流程
+## Release process
 
-AndroidViewModel 当前以 JitPack tag 为推荐分发方式：
+JitPack tags are the recommended distribution method:
 
-1. 更新 `android-view-model/build.gradle.kts` 的版本与 README 安装示例。
-2. 更新 `CHANGELOG.md`，并执行上述串行测试、构建与 Lint。
-3. 提交并推送 `main`。
-4. 创建 annotated tag `X.Y.Z`（不带 `v` 前缀），推送 tag，再创建同名 GitHub Release。
+1. Update the version in `android-view-model/build.gradle.kts` and README
+   installation examples.
+2. Update `CHANGELOG.md` and run the serial tests, build, and Lint above.
+3. Commit and push `main`.
+4. Create an annotated tag `X.Y.Z` without a `v` prefix, push it, and create a
+   GitHub Release with the same name.
 
-不要移动已经推送的 tag；需要修正时发布新版本。除非用户明确要求并且 Maven
-Central 凭据可用，否则不要额外执行 Maven Central 发布任务。
+Never move a pushed tag; publish a new version for corrections. Do not run Maven
+Central publishing tasks unless explicitly requested and credentials are available.
 
-## Host 与暂停边界
+## Host and pause boundaries
 
-- Retained binding 跟随 `ViewModelStore` 清理；每个生命周期暂停源则跟随它自己的
-  owner，在 `ON_DESTROY` 时从 controller 移除，不能只 dispose 后留下暂停状态。
-- 多暂停源按 OR 聚合。只有整体暂停状态发生变化才调用 `onPause/onResume`；
-  一个源恢复不能越过其他仍暂停的源，销毁 controller 也不能触发恢复回调。
-- 已销毁 binding 的所有实例查询都必须拒绝新增 ownership，包括按 tag 批量查询，
-  以及 binding 标记 disposed 后、controller 清理前的 teardown 重入。
+- Retained bindings end with their `ViewModelStore`. Each lifecycle pause source
+  follows its own owner and must be removed from the controller on `ON_DESTROY`;
+  disposing it alone must not leave stale pause state.
+- Aggregate pause sources with OR. Call `onPause/onResume` only when the aggregate
+  changes. One source resuming must not override another paused source, and
+  destroying the controller must not trigger resume callbacks.
+- All queries on disposed bindings must reject new ownership, including tag
+  batch queries and teardown reentrancy after the binding is marked disposed
+  but before controller cleanup completes.

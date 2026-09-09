@@ -4,8 +4,8 @@ import androidx.annotation.MainThread
 import kotlin.reflect.KProperty
 
 /**
- * 只保存解析逻辑的只读属性委托。每次访问都通过当前 ownership 边界解析，绝不缓存 VM。
- * 必须在主线程、所属 owner 存活期间使用；不要跨 owner 传递委托或解析出的实例。
+ * Read-only delegate holding only resolution logic. Every access resolves within its ownership boundary; no VM is cached.
+ * Use on the main thread while its owner is alive; never pass delegates or resolved instances across owners.
  */
 @MainThread
 public class ViewModelDelegate<VM : ViewModel> internal constructor(
@@ -17,7 +17,7 @@ public class ViewModelDelegate<VM : ViewModel> internal constructor(
     }
 }
 
-/** 延迟获取 binding，适用于 Fragment view lifecycle 等会更换 binding 的 host。 */
+/** Defers binding lookup for hosts whose binding can change, such as Fragment views. */
 @MainThread
 public fun <VM : ViewModel> watchViewModel(
     factory: ViewModelFactory<VM>,
@@ -27,7 +27,7 @@ public fun <VM : ViewModel> watchViewModel(
     return ViewModelDelegate { binding().watch(factory) }
 }
 
-/** 与 watch 相同的 ownership/disposal 语义，但不监听 VM 自身通知。 */
+/** Preserves watch ownership/disposal semantics without observing VM notifications. */
 @MainThread
 public fun <VM : ViewModel> readViewModel(
     factory: ViewModelFactory<VM>,

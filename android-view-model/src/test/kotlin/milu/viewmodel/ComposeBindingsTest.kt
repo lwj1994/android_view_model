@@ -157,7 +157,7 @@ class ComposeBindingsTest {
                         assertEquals(if (watch) 2 else 1, recompositions)
 
                         binding.recycle(first)
-                        // 无需等待重组，保留的旧回调已能取得新 generation。
+                        // The retained callback resolves the new generation without waiting for recomposition.
                         val second = originalCallback()
                         assertNotSame(first, second)
                         assertEquals(2, second.generation)

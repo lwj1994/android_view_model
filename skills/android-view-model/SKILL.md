@@ -225,20 +225,27 @@ process, `RemoteProcessActivity` in `:remote`, and a non-exported
 `ProcessCounterStateProvider` in `:state_store`. Its in-memory Provider is an IPC
 demonstration, not process-death persistence.
 
-## 属性委托（业务代码统一入口）
+## Property delegates: the business-code entry point
 
-- Compose 使用 `val vm by watchViewModel(spec)` / `readViewModel(spec)`，函数返回委托。
-- Host、普通类和嵌套 VM 使用 `val vm by watchViewModel(spec) { viewModelBinding }`
-  或 read 版本；普通类可传 `{ scope.viewModelBinding }`。
-- 委托在每次访问时取当前 binding 并解析 VM，不缓存实例。首次访问建立 ownership；
-  Compose 额外在组合阶段解析并订阅通知/disposal，recycle 后回调无需等待重组即可解析。
-- 不使用 `by lazy`、`remember { vm }`、存储 VM 或跨 owner 传递委托。
-- 回调必须写 `{ vm.action() }`，不要用会捕获旧实例的 `vm::action`。
-- 稳定 spec 在声明委托时确定；禁止将旧回调带出原 ownership 生命周期。
-- `watchViewModelState/selectViewModelState` 返回渲染值；底层 binding `watch/read`
-  供委托解析，cached API 仍然只是高级查询入口。
+- In Compose, use `val vm by watchViewModel(spec)` or `readViewModel(spec)`;
+  these functions return delegates.
+- Hosts, plain classes, and nested VMs use
+  `val vm by watchViewModel(spec) { viewModelBinding }` or its read counterpart.
+  Plain classes can pass `{ scope.viewModelBinding }`.
+- Each access retrieves the current binding and resolves the VM without caching
+  an instance. Ownership starts on first access. Compose additionally resolves
+  and subscribes during composition; callbacks after recycle can resolve the
+  current generation without waiting for recomposition.
+- Do not use `by lazy`, `remember { vm }`, stored VM references, or cross-owner
+  delegate passing.
+- Use `{ vm.action() }` callbacks, not `vm::action`, which captures an old instance.
+- The stable spec is determined when the delegate is declared; old callbacks
+  must stay within the original owner's lifetime.
+- `watchViewModelState/selectViewModelState` return render values. Binding
+  `watch/read` implements resolution; cached APIs remain advanced queries.
 
-实现原理：委托的 `getValue()`（getter）负责每次访问时重新解析，业务代码无需手写 getter。
+Internally, the delegate's `getValue()` resolves on each access. Business code
+does not need handwritten getters.
 
 ## Choosing a binding
 
@@ -264,9 +271,10 @@ class MainActivity : FragmentActivity() {
 }
 ```
 
-## 底层 binding 解析语义
+## Underlying binding resolution semantics
 
-业务代码使用上述 `by` 委托；下表说明委托内部调用的解析机制。
+Business code uses the `by` delegates above. This table describes the resolution
+mechanism used inside those delegates.
 
 | API | Creates? | Owns on hit? | VM notifications | Handle disposal |
 | --- | ---: | ---: | ---: | ---: |

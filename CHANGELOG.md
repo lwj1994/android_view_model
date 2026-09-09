@@ -11,16 +11,21 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Breaking:** Compose `watchViewModel/readViewModel` 改为返回属性委托，使用
-  `val vm by watchViewModel(spec)`，不保留直接返回 VM 的旧用法。
-- Host、普通类与嵌套 VM 使用带延迟 binding lambda 的同名委托入口。
-  每次属性访问重新解析当前 generation，事件回调在 recycle 后无需等待重组。
-- 同步 README、Skill 与示例；回调改用 lambda，避免绑定方法引用捕获旧 VM。
+- **Breaking:** Compose `watchViewModel/readViewModel` now return property
+  delegates. Use `val vm by watchViewModel(spec)`; the former direct-VM return
+  API is not retained.
+- Hosts, plain classes, and nested VMs use the same delegate names with a deferred
+  binding lambda. Each access resolves the current generation; callbacks after
+  recycle do not need to wait for recomposition.
+- Update the README, skill, and examples. Use callback lambdas to avoid capturing
+  old VM instances through bound method references. Standardize documentation
+  in English.
 
 ### Tests
 
-- 覆盖委托延迟解析、重复访问去重、binding 更换、parent 销毁及 Compose
-  watch/read 通知差异，并验证 recycle 后原事件回调读取新 generation。
+- Cover deferred resolution, repeated-access deduplication, binding replacement,
+  parent disposal, Compose watch/read notification differences, and old callbacks
+  resolving the current generation after recycle.
 
 ## [0.6.0] - 2026-09-09
 
@@ -45,20 +50,20 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- 在生命周期 owner 销毁时移除对应暂停源，避免 retained binding 在配置变更后
-  残留暂停状态。
-- 多暂停源按 OR 聚合，仅在整体状态变化时触发暂停或恢复回调；销毁 controller
-  不触发恢复回调。
-- 已销毁 binding 的实例查询和按 tag 批量查询拒绝新增 ownership，同时覆盖
-  teardown 回调重入的窗口。
+- Remove each pause source when its lifecycle owner is destroyed, preventing
+  retained bindings from keeping stale pause state after configuration changes.
+- Aggregate pause sources with OR and dispatch pause/resume callbacks only when
+  the aggregate changes. Controller destruction does not trigger resume.
+- Reject new ownership in instance and tag-batch queries on disposed bindings,
+  including reentrant queries during teardown.
 
 ### Tests
 
 - Assert dependency forwarding through ordinary listeners instead of an override
   hook. Cover read-only root bindings, explicit business listeners, subscription
   cleanup, and the absence of subscription migration after child recycle.
-- 增加生命周期暂停、retained host 清理及已销毁 binding 查询的回归测试，
-  并通过 GitHub Actions 串行执行单元测试、构建与 Lint。
+- Add regression tests for lifecycle pauses, retained host cleanup, and disposed
+  binding queries. Run unit tests, builds, and Lint serially in GitHub Actions.
 
 ## [0.5.1] - 2026-08-30
 
