@@ -65,7 +65,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:0.7.1")
+    implementation("com.github.lwj1994:android_view_model:0.7.2")
 }
 ```
 
@@ -102,7 +102,7 @@ Bind it to the host you are using.
 
 ```kotlin
 // Compose
-ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
     val counter by watchViewModel(counterSpec)
 }
 
@@ -147,6 +147,36 @@ can change, such as Fragment views and Views, retrieve the current binding insid
 the binding lambda. `watchViewModelState` and `selectViewModelState` still return
 render values, not VMs. Binding `watch/read` implements delegate resolution;
 cached APIs remain advanced queries only.
+
+### Local versus screen bindings
+
+| API | Ownership and sharing | Release boundary |
+| --- | --- | --- |
+| `rememberViewModelBinding()` | Independent binding per composition call site; reused across recompositions. | The call leaves the composition. |
+| `rememberScreenViewModelBinding()` | Reuses the current `ViewModelStoreOwner` binding; callers under the same owner share it. | The owner's `ViewModelStore` is cleared. |
+
+A screen owner is usually the destination's `NavBackStackEntry` in Navigation
+Compose, or an Activity/Fragment outside navigation. It is not necessarily the
+root navigation graph. Screen bindings survive configuration changes and can
+outlive a composable that disappears; they do not restore instances after process
+death. Without a `ViewModelStoreOwner`, the screen API falls back to a local binding.
+
+`ViewModelBindingProvider()` creates a local binding by default. Descendant
+`watchViewModel/readViewModel` consumers share that provider's binding. Without a
+provider, each consumer call site uses a local binding. Opt into screen ownership
+explicitly:
+
+```kotlin
+ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
+    ScreenContent()
+}
+```
+
+Use the local default for dialogs and independent UI features that should release
+ownership on exit. Use a screen binding when the owner should retain and share
+instances beyond a particular composition. Under the same screen binding, unkeyed
+specs of the same VM type reuse an instance. The screen API reads
+`LocalViewModelStoreOwner`, not an enclosing `ViewModelBindingProvider`.
 
 ### Fixed versus deferred bindings
 
@@ -263,7 +293,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:0.7.1")
+    implementation("android_view_model:android-view-model:0.7.2")
 }
 ```
 
@@ -296,7 +326,7 @@ val counterSpec = viewModelSpec {
 ```kotlin
 @Composable
 fun CounterScreen() {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
         val count = selectViewModelState(
             factory = counterSpec,
             selector = { it.count },
@@ -416,7 +446,7 @@ val draftViewModelSpec = viewModelSpecWithArg<DraftViewModel, String>(
 
 @Composable
 fun PageA(documentId: String) {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
         val draft by watchViewModel(draftViewModelSpec(documentId))
         Text(draft.title)
     }
@@ -424,7 +454,7 @@ fun PageA(documentId: String) {
 
 @Composable
 fun PageB(documentId: String) {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
         val draft by watchViewModel(draftViewModelSpec(documentId))
         TextField(
             value = draft.title,
@@ -673,7 +703,7 @@ fun tearDown() {
 
 The [example guide](example/README.md) covers the delegate conventions. The `example` module demonstrates all supported host styles:
 
-- Compose with `rememberRetainedViewModelBinding`
+- Compose with `rememberScreenViewModelBinding`
 - Activity with `viewModelBinding`
 - Fragment with `viewLifecycleViewModelBinding` and `activityViewModelBinding`
 - Custom View with `viewModelBinding`

@@ -38,7 +38,7 @@ import milu.viewmodel.ParcelableProcessStateStore
 import milu.viewmodel.ProcessStateRecord
 import milu.viewmodel.StateViewModel
 import milu.viewmodel.ViewModelBindingProvider
-import milu.viewmodel.rememberRetainedViewModelBinding
+import milu.viewmodel.rememberScreenViewModelBinding
 import milu.viewmodel.viewModelSpec
 import milu.viewmodel.watchViewModel
 
@@ -72,7 +72,7 @@ class RemoteProcessActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+                ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
                     Surface {
                         ProcessCounterPanel(showOpenRemoteButton = false)
                     }

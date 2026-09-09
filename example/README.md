@@ -6,6 +6,13 @@ All examples declare VM properties with `by watchViewModel/readViewModel`.
 - [CounterModels.kt](src/main/kotlin/milu/viewmodel/example/CounterModels.kt): Nested ViewModels and plain-class binding scopes.
 - [ProcessCounterExample.kt](src/main/kotlin/milu/viewmodel/example/ProcessCounterExample.kt): Cross-process state synchronization and Compose consumers.
 
+In Compose, `rememberViewModelBinding()` creates a local binding released when
+its call leaves composition. `rememberScreenViewModelBinding()` shares the current
+owner's binding (usually a navigation entry or Activity/Fragment), surviving
+configuration changes until the owner's ViewModelStore is cleared. Without an
+owner it falls back to local scope. Providers default to local scope; the screen
+examples explicitly pass a screen binding to retain ownership.
+
 In Compose:
 
 ```kotlin

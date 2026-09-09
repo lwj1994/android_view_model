@@ -83,7 +83,7 @@ PostDetailScreen composition binding
 - Applied parameterized specs are memoized with `remember(...)` before they are
   passed to `watchViewModel`. This keeps the factory stable across
   recompositions while the spec-derived key defines instance identity.
-- The app root uses `rememberRetainedViewModelBinding`; feature screens use
+- The app root uses `rememberScreenViewModelBinding`; feature screens use
   `rememberViewModelBinding` so their root ownership ends when the composition
   leaves. Shared keyed modules remain alive while another owner still exists.
 - ViewModel state changes stay on the main thread. Suspended repository calls

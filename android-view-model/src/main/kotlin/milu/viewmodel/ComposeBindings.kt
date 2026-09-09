@@ -18,7 +18,12 @@ public val LocalViewModelBinding: ProvidableCompositionLocal<ViewModelBinding?> 
     staticCompositionLocalOf { null }
 
 /**
- * Creates a binding that is disposed with the current composition.
+ * Creates an independent binding at this composition call site and reuses it across recompositions.
+ * Disposes the binding when this call leaves the composition; it does not survive recreation of
+ * that composition during a configuration change. Separate call sites get separate bindings.
+ *
+ * Use [ViewModelBindingProvider] to share it with descendants. Use [rememberScreenViewModelBinding]
+ * instead when ownership should follow the current ViewModelStoreOwner beyond this composition.
  */
 @Composable
 @MainThread
@@ -31,11 +36,21 @@ public fun rememberViewModelBinding(): ViewModelBinding {
 }
 
 /**
- * Uses the current ViewModelStoreOwner binding when available, otherwise falls back to composition scope.
+ * Reuses the binding owned by [LocalViewModelStoreOwner], usually the current navigation entry
+ * inside a Navigation Compose destination, or the Activity/Fragment in other hosts.
+ * Calls under the same owner share the same binding, including unkeyed instances of the same VM type.
+ *
+ * The binding survives configuration changes and leaving this composition. It is disposed when
+ * the owner's ViewModelStore is cleared (for example, when a navigation entry is removed), not
+ * simply when the current composable disappears. This preserves in-memory instances, not state
+ * across process death. It does not read [LocalViewModelBinding] or select the topmost navigation graph.
+ *
+ * Without a ViewModelStoreOwner, falls back to [rememberViewModelBinding] and its local lifetime.
+ * Prefer [rememberViewModelBinding] for local features that should release ownership on leaving UI.
  */
 @Composable
 @MainThread
-public fun rememberRetainedViewModelBinding(): ViewModelBinding {
+public fun rememberScreenViewModelBinding(): ViewModelBinding {
     val owner = LocalViewModelStoreOwner.current
     return if (owner != null) {
         remember(owner) { owner.viewModelBinding }
@@ -44,12 +59,22 @@ public fun rememberRetainedViewModelBinding(): ViewModelBinding {
     }
 }
 
+/**
+ * Uses the nearest [ViewModelBindingProvider], or creates a local binding at this call site.
+ * Does not implicitly select screen ownership. To share a screen binding with consumers, pass
+ * [rememberScreenViewModelBinding] to a provider explicitly.
+ */
 @Composable
 @MainThread
 public fun currentViewModelBinding(): ViewModelBinding {
     return LocalViewModelBinding.current ?: rememberViewModelBinding()
 }
 
+/**
+ * Shares [binding] with descendant Compose VM consumers. By default creates a local composition
+ * binding. Pass `rememberScreenViewModelBinding()` explicitly for current-owner sharing.
+ * A supplied binding keeps its existing lifetime; this provider does not dispose it on exit.
+ */
 @Composable
 @MainThread
 public fun ViewModelBindingProvider(

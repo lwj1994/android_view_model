@@ -122,6 +122,14 @@ Central publishing tasks unless explicitly requested and credentials are availab
 
 ## Host and pause boundaries
 
+- `rememberViewModelBinding()` is local to its composition call site and disposes
+  on exit. `rememberScreenViewModelBinding()` shares the current ViewModelStoreOwner
+  binding, survives configuration changes, and disposes when the Store is cleared.
+  The screen owner is usually a navigation entry, not necessarily the root graph.
+  Without an owner, the screen API falls back to local scope. Providers and
+  provider-free Compose VM access remain local by default; opt into screen scope
+  explicitly. Screen lookup does not read the enclosing binding provider.
+
 - Retained bindings end with their `ViewModelStore`. Each lifecycle pause source
   follows its own owner and must be removed from the controller on `ON_DESTROY`;
   disposing it alone must not leave stale pause state.

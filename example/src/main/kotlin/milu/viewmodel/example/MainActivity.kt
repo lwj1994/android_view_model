@@ -29,7 +29,7 @@ import androidx.fragment.app.FragmentContainerView
 import androidx.fragment.app.FragmentActivity
 import milu.viewmodel.ViewModelBindingProvider
 import milu.viewmodel.activityViewModelBinding
-import milu.viewmodel.rememberRetainedViewModelBinding
+import milu.viewmodel.rememberScreenViewModelBinding
 import milu.viewmodel.viewLifecycleViewModelBinding
 import milu.viewmodel.viewModelBinding
 import milu.viewmodel.watchViewModel
@@ -111,7 +111,7 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 private fun CounterScreen(onPlainClassClick: () -> Unit) {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
         val counter by watchViewModel(counterSpec)
         val analytics by watchViewModel(analyticsSpec)
 

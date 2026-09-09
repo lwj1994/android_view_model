@@ -7,6 +7,19 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-09
+
+### Changed
+
+- **Breaking:** Rename `rememberRetainedViewModelBinding()` to
+  `rememberScreenViewModelBinding()` across the API, imports, and examples.
+  The old name is removed without a compatibility alias.
+- Keep `rememberViewModelBinding()` and default Compose consumers local to
+  composition. The screen API still shares the current ViewModelStoreOwner's
+  binding and falls back to local scope when no owner exists.
+- Expand API comments, README, skill, and example documentation to distinguish
+  sharing, disposal, configuration changes, owner lookup, and provider behavior.
+
 ## [0.7.1] - 2026-09-09
 
 ### Added

@@ -17,12 +17,12 @@ import example.instagram.core.LoadPhase
 import example.instagram.feed.PostFeedScreen
 import example.instagram.post_detail.PostDetailScreen
 import milu.viewmodel.ViewModelBindingProvider
-import milu.viewmodel.rememberRetainedViewModelBinding
+import milu.viewmodel.rememberScreenViewModelBinding
 import milu.viewmodel.watchViewModel
 
 @Composable
 fun InstagramArchitectureApp(currentUserId: String = "user-milu") {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
         // The parameterized spec application is memoized across recompositions.
         val startupFactory = remember(currentUserId) {
             initViewModelSpec(currentUserId)

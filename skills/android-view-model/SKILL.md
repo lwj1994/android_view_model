@@ -148,7 +148,7 @@ val draftViewModelSpec = viewModelSpecWithArg<DraftViewModel, String>(
 
 @Composable
 fun PageA(documentId: String) {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
         val draft by watchViewModel(draftViewModelSpec(documentId))
         Text(draft.title)
     }
@@ -156,7 +156,7 @@ fun PageA(documentId: String) {
 
 @Composable
 fun PageB(documentId: String) {
-    ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
+    ViewModelBindingProvider(binding = rememberScreenViewModelBinding()) {
         val draft by watchViewModel(draftViewModelSpec(documentId))
         TextField(
             value = draft.title,
@@ -266,7 +266,7 @@ does not need handwritten getters.
 
 | Context | Recommended API | Lifecycle |
 | --- | --- | --- |
-| Compose retained by Activity/Fragment | `rememberRetainedViewModelBinding()` | Cleared with current `ViewModelStoreOwner`. |
+| Compose current-owner screen scope | `rememberScreenViewModelBinding()` | Cleared with current `ViewModelStoreOwner`. |
 | Compose local composition | `rememberViewModelBinding()` | Disposed when composition leaves. |
 | Compose broad rebuild | `by watchViewModel(spec)` | Subscribes to VM notifications. |
 | Compose access without broad rebuild | `by readViewModel(spec)` | Bound, no VM-wide subscription. |
@@ -455,9 +455,18 @@ Every zero- through four-argument spec supports `overrideWith` and
   and `dispose` on the main thread.
 - Use `viewModelScope` for asynchronous work and return to
   `Dispatchers.Main.immediate` before mutating state.
-- Use `rememberRetainedViewModelBinding()` for ordinary Compose screens hosted
-  by Activity/Fragment. Use `rememberViewModelBinding()` only for intentionally
-  short-lived local composition scope.
+- Keep `rememberViewModelBinding()` as the local default: one independent binding
+  per call site, disposed when that call leaves the composition.
+- Opt into `rememberScreenViewModelBinding()` for current-owner sharing and
+  retention across configuration changes. In Navigation Compose, the owner is
+  usually the destination entry; otherwise it can be an Activity/Fragment.
+  Callers under the same owner share a binding, including unkeyed same-type VMs.
+  Disposal follows ViewModelStore clearing, not composable exit or Lifecycle
+  destruction alone. This does not restore instances after process death.
+- The screen API reads `LocalViewModelStoreOwner`, not `LocalViewModelBinding`;
+  without an owner it falls back to a local binding. `ViewModelBindingProvider()`
+  and provider-free consumers remain local by default. Explicitly supply a screen
+  binding to a provider to share it with descendants.
 - `View.viewModelBinding` ends at detach; use a tree/owner binding when state
   must survive View recreation.
 
