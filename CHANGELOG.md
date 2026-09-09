@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-09
+
 ### Removed
 
 - **Breaking:** Remove the `ViewModel.onDependencyNotify` override hook and
@@ -26,11 +28,22 @@ project follows [Semantic Versioning](https://semver.org/).
   boundaries accept immutable render values and event callbacks instead of VM
   instances.
 
+### Fixed
+
+- 在生命周期 owner 销毁时移除对应暂停源，避免 retained binding 在配置变更后
+  残留暂停状态。
+- 多暂停源按 OR 聚合，仅在整体状态变化时触发暂停或恢复回调；销毁 controller
+  不触发恢复回调。
+- 已销毁 binding 的实例查询和按 tag 批量查询拒绝新增 ownership，同时覆盖
+  teardown 回调重入的窗口。
+
 ### Tests
 
 - Assert dependency forwarding through ordinary listeners instead of an override
   hook. Cover read-only root bindings, explicit business listeners, subscription
   cleanup, and the absence of subscription migration after child recycle.
+- 增加生命周期暂停、retained host 清理及已销毁 binding 查询的回归测试，
+  并通过 GitHub Actions 串行执行单元测试、构建与 Lint。
 
 ## [0.5.1] - 2026-08-30
 
