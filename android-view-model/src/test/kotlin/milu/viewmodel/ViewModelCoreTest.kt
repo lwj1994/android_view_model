@@ -383,8 +383,7 @@ private class RootViewModel : ViewModel() {
         lateinit var depSpec: ViewModelSpec<DependencyViewModel>
     }
 
-    val dep: DependencyViewModel
-        get() = viewModelBinding.read(depSpec)
+    val dep: DependencyViewModel by readViewModel(depSpec) { viewModelBinding }
 }
 
 private data class CounterState(

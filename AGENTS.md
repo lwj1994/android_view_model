@@ -5,7 +5,7 @@
 ## 一句话说明
 
 AndroidViewModel 是 Flutter `view_model` 核心模型的 Android 实现：业务能力可
-建模为 ViewModel，通过稳定 spec 与 `watch/read` 组合；binding graph 使用
+建模为 ViewModel，通过稳定 spec 与 `by` 属性委托组合；binding graph 使用
 source-aware owner 路径管理生命周期，并在最后一条 owner 路径离开时自动销毁。
 
 ## 目录
@@ -19,7 +19,8 @@ skills/android-view-model/                          AI Skill
 
 ## 核心不变式
 
-1. 稳定 spec 的 `watch/read` 是主入口；两者都会创建/获取、bind，并观察 handle
+1. 稳定 spec 的 `by watchViewModel/readViewModel` 是业务主入口；委托内部通过
+   binding 的 `watch/read` 创建/获取、bind，并观察 handle
    disposal，只有 `watch` 监听 VM 自身通知。即使 spec 带 key/tag，也继续
    传 spec；cached API 只查询其他路径已创建的实例，是高级 escape hatch，不能与
    主入口并列推荐。README、Skill、示例与公开 API 注释都必须保持这个优先级。
@@ -31,15 +32,18 @@ skills/android-view-model/                          AI Skill
    仍可强制销毁。
 4. 每个 parent generation 延迟拥有稳定 dependency binding。它保活已解析 child、
    实时传播 root owners；direct 与多个 parent 路径按 source 独立释放。
-5. 嵌套 ViewModel 与 host 中可能经历 recycle 的 ViewModel 必须通过
-   resolver property 获取，不得使用 `by lazy`/stored reference 长期缓存。
+5. 业务侧统一通过 `by watchViewModel/readViewModel(spec)` 委托获取 VM；
+   非 Compose 显式传入 `{ viewModelBinding }`，由委托在每次访问时获取当前 binding 并通过
+   底层 `watch/read(spec)` 解析。不得使用 `by lazy`/stored reference 长期缓存。
+   Compose 在组合阶段订阅刷新，委托不缓存 VM；事件回调用 `{ vm.action() }`，
+   不得用会捕获旧实例的 `vm::action`。不要跨 owner 传递委托。
 6. ViewModel 内 `read` 不冒泡 child 自身通知；`watch` 自动向 parent 传播通知，
    最终触发监听 parent 的 binding 刷新。两者生命周期语义一致，但通知语义不同。
    不提供依赖更新业务钩子；业务响应使用 binding 的 `listen/listenState/
-   listenStateSelect`，在初始化时注册一次，不放进 resolver getter。
+   listenStateSelect`，在初始化时注册一次，不放进委托的 binding lambda。
    同步 graph 按 binding 去重；`read/watch` 都继续观察 handle disposal。
 7. 不提供原位替换实例的 `recreate` API。需要独立新实例时使用显式新 key；若明确
-   接受影响所有 owners，则先全局 `recycle`，再由 resolver getter 通过
+   接受影响所有 owners，则先全局 `recycle`，再次访问委托属性时由框架通过
    `watch/read(spec)` 走正常 cache-miss 路径创建新 handle 与 dependency tree，
    不迁移旧对象关系。
 8. 所有公开 ViewModel API 都只能在主线程调用；业务 ViewModel 不继承 AndroidX
@@ -55,7 +59,7 @@ skills/android-view-model/                          AI Skill
     recycle 后必须重新解析 generation。
 12. 已解析的 `ViewModel` / `StateViewModel` 实例只能在解析它的 ownership 边界内
     使用，禁止作为依赖或参数跨组件、分层、host、binding 或 owner 传递。可传递的
-    是稳定 spec；每个消费方必须通过自身 binding 或 resolver property 解析，从而
+    是稳定 spec；每个消费方必须通过使用自身 binding 的 `by` 委托解析，从而
     建立 owner 路径并在 recycle 后取得新 generation。Composable 边界只传不可变
     渲染值与事件回调，禁止传 VM；`watchViewModel` 的观察关系不会随同一 VM 引用
     跨越边界。
@@ -68,7 +72,7 @@ skills/android-view-model/                          AI Skill
 - `android-view-model/build.gradle.kts` 中的 `maxParallelForks = 1` 不得移除。
 - ViewModel 构造调用必须放在 `viewModelSpec` builder 内；测试体和 `setUp()`
   不得直接实例化受管 ViewModel。
-- 不要把 ViewModel 存在测试字段；使用由测试 binding 解析的 getter。
+- 不要把 ViewModel 存在测试字段；使用 `by readViewModel(spec) { binding }` 委托属性。
 - 每个 binding 必须 dispose，并在用例间调用完整的 `ViewModel.reset()`。
 
 ## 验证命令
@@ -89,7 +93,7 @@ AndroidViewModel 当前以 JitPack tag 为推荐分发方式：
 1. 更新 `android-view-model/build.gradle.kts` 的版本与 README 安装示例。
 2. 更新 `CHANGELOG.md`，并执行上述串行测试、构建与 Lint。
 3. 提交并推送 `main`。
-4. 创建 annotated tag `vX.Y.Z`，推送 tag，再创建同名 GitHub Release。
+4. 创建 annotated tag `X.Y.Z`（不带 `v` 前缀），推送 tag，再创建同名 GitHub Release。
 
 不要移动已经推送的 tag；需要修正时发布新版本。除非用户明确要求并且 Maven
 Central 凭据可用，否则不要额外执行 Maven Central 发布任务。

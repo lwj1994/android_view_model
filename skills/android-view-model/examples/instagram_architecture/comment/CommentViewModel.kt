@@ -1,5 +1,6 @@
 package example.instagram.comment
 
+import milu.viewmodel.readViewModel
 import example.instagram.core.InstagramDemoException
 import example.instagram.core.LoadPhase
 import example.instagram.models.Comment
@@ -28,12 +29,10 @@ class CommentViewModel(
     initialState = CommentState(),
     equals = { previous, current -> previous == current },
 ) {
-    val repository: CommentRepository
-        get() = viewModelBinding.read(commentRepositorySpec)
+    val repository: CommentRepository by readViewModel(commentRepositorySpec) { viewModelBinding }
 
     // This resolves the same keyed UserViewModel used by startup.
-    val currentUser: UserViewModel
-        get() = viewModelBinding.read(userViewModelSpec(currentUserId))
+    val currentUser: UserViewModel by readViewModel(userViewModelSpec(currentUserId)) { viewModelBinding }
 
     suspend fun load() {
         if (state.phase == LoadPhase.Loading || state.phase == LoadPhase.Ready) return

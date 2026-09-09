@@ -1,5 +1,6 @@
 package example.instagram.feed
 
+import milu.viewmodel.readViewModel
 import example.instagram.core.LoadPhase
 import example.instagram.models.Post
 import example.instagram.post.PostRepository
@@ -25,8 +26,7 @@ class PostFeedViewModel(
     initialState = PostFeedState(),
     equals = { previous, current -> previous == current },
 ) {
-    val repository: PostRepository
-        get() = viewModelBinding.read(postRepositorySpec)
+    val repository: PostRepository by readViewModel(postRepositorySpec) { viewModelBinding }
 
     suspend fun load(force: Boolean = false) {
         if (state.phase == LoadPhase.Loading) return

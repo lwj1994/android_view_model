@@ -11,7 +11,7 @@ It keeps the core service model independent from any single Android host:
 - `ViewModelSpec` declares how to build a ViewModel and whether it is shared by `key`.
 - `ViewModelBinding` is the scoped container used by Activity, Fragment, Compose, View, or plain classes.
 
-Every functional unit can be a ViewModel: UI state, repositories, services, coordinators, or domain capabilities. Each managed parent object generation owns a stable dependency binding. Child modules are created only when a resolver property is accessed, remain alive for at least the parent's lifetime, and are released automatically.
+Every functional unit can be a ViewModel: UI state, repositories, services, coordinators, or domain capabilities. Each managed parent object generation owns a stable dependency binding. Child modules are created only when a delegated property is accessed, remain alive for at least the parent's lifetime, and are released automatically.
 
 Instance identity is the resolved ViewModel type plus its effective key. An unkeyed spec uses a private key owned by the current binding, so repeated resolution of the same type reuses one instance inside that binding while different bindings remain isolated. Use explicit keys for cross-binding sharing or multiple instances of the same type in one binding.
 
@@ -26,15 +26,15 @@ npx skills add https://github.com/lwj1994/android_view_model --skill android-vie
 ## Core resolution rules
 
 > [!IMPORTANT]
-> The default path is always **stable spec → `watch(spec)` / `read(spec)`**.
+> The default path is always **stable spec → `by watchViewModel(spec)` / `by readViewModel(spec)`**.
 > A spec may contain a key or tag and should still be passed through these APIs;
 > knowing cache identity is not a reason to bypass the spec.
 
-- Keep specs stable and module-level. Use `watch(spec)` or `read(spec)` as the primary entry points in Compose, host classes, tests, and ViewModel-to-ViewModel dependencies.
+- Keep specs stable and module-level. Use `by watchViewModel(spec)` or `by readViewModel(spec)` in Compose, host classes, tests, and ViewModel-to-ViewModel dependencies; outside Compose, supply a binding lambda such as `{ viewModelBinding }`.
 - `watch` and `read` both create or reuse an instance, establish lifecycle ownership, and observe handle disposal, including force-recycle. Only `watch` listens to the ViewModel's own `notifyListeners()`.
 - Prefer binding-managed modules over global singletons. A normal feature, service, repository, or coordinator should use an unkeyed spec with `aliveForever = false`.
 - Cached APIs are advanced lookup-only escape hatches. They cannot create a missing instance and should not replace spec-based dependency resolution.
-- Resolve ViewModels through resolver properties instead of `by lazy` or stored references so explicit recycle and asynchronous lifecycle changes can return the current generation.
+- Declare ViewModel properties with `by` delegates. Do not cache resolved instances with `by lazy`, `remember { vm }`, or another field; the delegate handles resolution after recycle.
 
 ## Quick Start
 
@@ -60,7 +60,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:0.6.0")
+    implementation("com.github.lwj1994:android_view_model:0.7.0")
 }
 ```
 
@@ -98,19 +98,45 @@ Bind it to the host you are using.
 ```kotlin
 // Compose
 ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-    val counter = watchViewModel(counterSpec)
+    val counter by watchViewModel(counterSpec)
 }
 
 // Activity
-val counter = viewModelBinding.watch(counterSpec)
+val counter by watchViewModel(counterSpec) { viewModelBinding }
 
 // Fragment view lifecycle
-val counter = viewLifecycleViewModelBinding.watch(counterSpec)
+val counter by watchViewModel(counterSpec) { viewLifecycleViewModelBinding }
 
 // Plain class
 val scope = ViewModelBindingScope()
-val counter = scope.viewModelBinding.read(counterSpec)
+val counter by readViewModel(counterSpec) { scope.viewModelBinding }
 ```
+
+### 统一使用属性委托
+
+业务侧统一使用 `val vm by watchViewModel(spec)` / `readViewModel(spec)`。
+Compose 中由组合阶段建立通知或 generation 订阅；非 Compose 中显式传入
+`{ viewModelBinding }`，在首次属性访问时才建立 ownership。委托内部的 `getValue()`（getter）在每次访问时调用底层
+binding 的 `watch/read(spec)`，不缓存 VM，recycle 后无需等待重组即可解析新 generation。
+
+```kotlin
+class PageViewModel : ViewModel() {
+    val draft by watchViewModel(draftSpec) { viewModelBinding }
+}
+
+@Composable
+fun DraftScreen() {
+    val draft by watchViewModel(draftSpec)
+    TextField(value = draft.title, onValueChange = { draft.updateTitle(it) })
+}
+```
+
+事件回调使用 `{ vm.action() }`；`vm::action` 会立即读取并捕获当时的 VM。
+不要另存 `val cached = vm`、使用 `remember { vm }` 或跨 owner 传递委托。
+委托绑定声明时的稳定 spec 与 ownership 边界；旧回调不能跨 owner 生命周期使用。
+Fragment view、View 等 binding 会变化的场景，必须在 binding lambda 中获取当前 binding。
+`watchViewModelState` / `selectViewModelState` 继续返回渲染值，不返回 VM。
+底层 binding 的 `watch/read` 是委托使用的解析机制；cached API 仍仅用于高级查询。
 
 ### Keep resolved ViewModels inside their ownership boundary
 
@@ -124,7 +150,7 @@ a disposed generation after `recycle`, outlive the binding that owns it, or keep
 the instance alive outside its intended lifecycle. Instead:
 
 - pass the stable spec and let each consumer resolve it through its own binding;
-- use resolver properties for ViewModel-to-ViewModel dependencies;
+- use `by`-delegated properties for ViewModel-to-ViewModel dependencies;
 - pass immutable render values and event callbacks across UI boundaries.
 
 An explicit key allows consumers to resolve the same managed instance; it is
@@ -186,7 +212,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:0.6.0")
+    implementation("android_view_model:android-view-model:0.7.0")
 }
 ```
 
@@ -224,8 +250,8 @@ fun CounterScreen() {
             factory = counterSpec,
             selector = { it.count },
         )
-        val counter = readViewModel(counterSpec)
-        Button(onClick = counter::increment) {
+        val counter by readViewModel(counterSpec)
+        Button(onClick = { counter.increment() }) {
             Text("$count")
         }
     }
@@ -250,7 +276,7 @@ callbacks, not a ViewModel:
 ```kotlin
 @Composable
 fun DraftRoute() {
-    val draft = watchViewModel(draftSpec)
+    val draft by watchViewModel(draftSpec)
     DraftContent(draft) // Forbidden: observation does not cross this boundary.
 }
 ```
@@ -261,10 +287,10 @@ values in the watching scope and pass those values to the child:
 ```kotlin
 @Composable
 fun DraftRoute() {
-    val draft = watchViewModel(draftSpec)
+    val draft by watchViewModel(draftSpec)
     DraftContent(
         title = draft.title,
-        onTitleChanged = draft::updateTitle,
+        onTitleChanged = { draft.updateTitle(it) },
     )
 }
 ```
@@ -277,13 +303,12 @@ strong-skipping problem.
 
 ```kotlin
 class MainActivity : FragmentActivity() {
-    private val counter: CounterViewModel
-        get() = viewModelBinding.watch(counterSpec)
+    private val counter: CounterViewModel by watchViewModel(counterSpec) { viewModelBinding }
 }
 
 class CounterFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        val counter = viewLifecycleViewModelBinding.watch(counterSpec)
+        val counter by watchViewModel(counterSpec) { viewLifecycleViewModelBinding }
     }
 }
 ```
@@ -294,7 +319,7 @@ class CounterFragment : Fragment() {
 class CounterPanelView(context: Context) : LinearLayout(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        val counter = viewModelBinding.watch(counterSpec)
+        val counter by watchViewModel(counterSpec) { viewModelBinding }
     }
 }
 ```
@@ -304,8 +329,7 @@ class CounterPanelView(context: Context) : LinearLayout(context) {
 ```kotlin
 class CounterController : AutoCloseable {
     private val scope = ViewModelBindingScope()
-    private val counter: CounterViewModel
-        get() = scope.viewModelBinding.read(counterSpec)
+    private val counter: CounterViewModel by readViewModel(counterSpec) { scope.viewModelBinding }
 
     fun increment() = counter.increment()
 
@@ -342,7 +366,7 @@ val draftViewModelSpec = viewModelSpecWithArg<DraftViewModel, String>(
 @Composable
 fun PageA(documentId: String) {
     ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-        val draft = watchViewModel(draftViewModelSpec(documentId))
+        val draft by watchViewModel(draftViewModelSpec(documentId))
         Text(draft.title)
     }
 }
@@ -350,10 +374,10 @@ fun PageA(documentId: String) {
 @Composable
 fun PageB(documentId: String) {
     ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-        val draft = watchViewModel(draftViewModelSpec(documentId))
+        val draft by watchViewModel(draftViewModelSpec(documentId))
         TextField(
             value = draft.title,
-            onValueChange = draft::updateTitle,
+            onValueChange = { draft.updateTitle(it) },
         )
     }
 }
@@ -453,28 +477,26 @@ Choose `watch` when ViewModel notifications should update the owner. Choose
 
 Single-result non-`maybe` lookups throw on a miss, and tag lookup can be
 ambiguous when several instances share a tag. If the caller has a spec—even a
-keyed or tagged spec—use `watch(spec)` / `read(spec)` instead.
+keyed or tagged spec—use `by watchViewModel(spec)` / `by readViewModel(spec)` instead.
 
 The `maybe*Cached` variants convert only a `ViewModelError` miss to `null`.
 Programming errors and exceptions raised by key/tag implementations still
 propagate.
 
-`listen`, `listenState`, and `listenStateSelect` resolve through `read` and are automatically removed when the target handle or binding disposes. They are not migrated to another object. Do not put a `listen` call in a repeatedly evaluated resolver property.
+`listen`, `listenState`, and `listenStateSelect` resolve through `read` and are automatically removed when the target handle or binding disposes. They are not migrated to another object. Register listeners once during initialization, never inside a delegate's binding lambda.
 
 ## ViewModel-to-ViewModel dependencies
 
-Expose nested ViewModels through resolver properties. Do not retain a child in a stored property or ad-hoc cache: explicit `recycle` or an asynchronous lifecycle race must allow the next access to resolve the current generation.
+Expose nested ViewModels through `by`-delegated properties. Do not retain a child in a stored property or ad-hoc cache: explicit `recycle` or an asynchronous lifecycle race must allow the next access to resolve the current generation.
 
 ```kotlin
 val sessionSpec = viewModelSpec { SessionViewModel() }
 val cartSpec = viewModelSpec { CartViewModel() }
 
 class CheckoutViewModel : ViewModel() {
-    val session: SessionViewModel
-        get() = viewModelBinding.read(sessionSpec)
+    val session: SessionViewModel by readViewModel(sessionSpec) { viewModelBinding }
 
-    val cart: CartViewModel
-        get() = viewModelBinding.watch(cartSpec)
+    val cart: CartViewModel by watchViewModel(cartSpec) { viewModelBinding }
 }
 ```
 
@@ -488,7 +510,7 @@ update each binding at most once.
 
 There is no `onDependencyNotify` override hook. For business reactions, register
 binding `listen`, `listenState`, or `listenStateSelect` once during
-initialization, not in a resolver getter. For example:
+initialization, not in a delegate's binding lambda. For example:
 
 ```kotlin
 class CartChangeViewModel : ViewModel() {
@@ -510,7 +532,7 @@ handle or binding is disposed and are not migrated after recycle.
 
 A keyed parent can be shared by several root bindings. Roots joining or leaving are mirrored to already-resolved children without changing an unkeyed child's identity. Ownership paths are source-aware: one root may own a keyed child directly and through several parents, and releasing one path does not remove the others. Every `aliveForever` spec must use an explicit key at both root and nested resolution sites.
 
-Getter declarations create nothing by themselves. After a child is resolved, the parent generation owns a `parent → child` lifecycle edge. The child may outlive its parent if another direct or parent path still owns it, but it cannot be disposed while that parent generation still owns it.
+Nested ViewModel delegate declarations create nothing until first accessed. After a child is resolved, the parent generation owns a `parent → child` lifecycle edge. The child may outlive its parent if another direct or parent path still owns it, but it cannot be disposed while that parent generation still owns it.
 
 ## Lifecycle controls
 
@@ -519,9 +541,9 @@ Getter declarations create nothing by themselves. After a child is resolved, the
   all cached generations before clearing configuration and lifecycle observers;
   nested reset attempts during teardown are ignored until that sequence ends.
 
-There is no in-place instance replacement API. To obtain an independent instance, use a new explicit key. If replacing the shared cached generation globally is intentional, call `recycle(vm)` and let resolver properties call `watch(spec)` / `read(spec)` again. The cache miss creates a new handle and dependency tree; owner paths, watch/listen subscriptions, and dependency edges are not migrated from the disposed object.
+There is no in-place instance replacement API. To obtain an independent instance, use a new explicit key. If replacing the shared cached generation globally is intentional, call `recycle(vm)` and access the delegated property again; the delegate resolves the new generation automatically. The cache miss creates a new handle and dependency tree; owner paths, watch/listen subscriptions, and dependency edges are not migrated from the disposed object.
 
-After `recycle`, access ViewModels through resolver properties; a stored reference keeps pointing at the disposed object.
+After `recycle`, access ViewModels through `by`-delegated properties; a stored reference keeps pointing at the disposed object.
 
 Construction and dependency graphs are checked. Recursive construction and runtime ownership cycles throw `ViewModelError`; a failed build rolls back children created by that dependency scope.
 
@@ -575,14 +597,13 @@ Use `viewModelScope` for async work and hop back to the main thread before mutat
 - The library Gradle module enforces `maxParallelForks = 1`; keep this invariant
   in downstream CI and do not add `--parallel` to the verification command.
 - Put constructor calls inside `viewModelSpec` builders and resolve managed instances through a test binding; do not instantiate a ViewModel directly in a test body or `setUp`.
-- Do not retain ViewModels in test fields. Use a getter backed by the test binding when a shared fixture is needed.
+- Do not retain ViewModels in test fields. Use a `by readViewModel(spec) { binding }` property when a shared fixture is needed.
 - Dispose every binding, and call the complete `ViewModel.reset()` between isolated tests.
 - Prefer `runWithOverride` for coroutine-based mocks. If using `overrideWith`, invoke its restore callback in `finally`; legacy `setProxy` / `clearProxy` also requires `try/finally`.
 
 ```kotlin
 private lateinit var binding: ViewModelBinding
-private val counter: CounterViewModel
-    get() = binding.read(counterSpec)
+private val counter: CounterViewModel by readViewModel(counterSpec) { binding }
 
 @Before
 fun setUp() {
@@ -599,7 +620,7 @@ fun tearDown() {
 
 ## Example
 
-The `example` module demonstrates all supported host styles:
+The [example guide](example/README.md) covers the delegate conventions. The `example` module demonstrates all supported host styles:
 
 - Compose with `rememberRetainedViewModelBinding`
 - Activity with `viewModelBinding`
@@ -610,7 +631,7 @@ The `example` module demonstrates all supported host styles:
 The bundled skill also contains an English, multi-file
 [Instagram architecture example](./skills/android-view-model/examples/instagram_architecture/README.md).
 It demonstrates API, repository, feature-state, and startup-coordinator
-ViewModels composed through stable specs and resolver properties. The
+ViewModels composed through stable specs and `by`-delegated properties. The
 architecture example is intentionally excluded from the Gradle build.
 
 Build it with:

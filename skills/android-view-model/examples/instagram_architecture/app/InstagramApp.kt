@@ -27,7 +27,7 @@ fun InstagramArchitectureApp(currentUserId: String = "user-milu") {
         val startupFactory = remember(currentUserId) {
             initViewModelSpec(currentUserId)
         }
-        val startup = watchViewModel(startupFactory)
+        val startup by watchViewModel(startupFactory)
         var selectedPostId by rememberSaveable { mutableStateOf<String?>(null) }
 
         LaunchedEffect(startup) {

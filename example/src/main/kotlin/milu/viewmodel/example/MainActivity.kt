@@ -1,5 +1,6 @@
 package milu.viewmodel.example
 
+import milu.viewmodel.readViewModel
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -35,8 +36,7 @@ import milu.viewmodel.watchViewModel
 
 class MainActivity : FragmentActivity() {
     private val plainController = PlainCounterController()
-    private val counter: CounterViewModel
-        get() = viewModelBinding.watch(counterSpec)
+    private val counter: CounterViewModel by watchViewModel(counterSpec) { viewModelBinding }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,8 +112,8 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun CounterScreen(onPlainClassClick: () -> Unit) {
     ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-        val counter = watchViewModel(counterSpec)
-        val analytics = watchViewModel(analyticsSpec)
+        val counter by watchViewModel(counterSpec)
+        val analytics by watchViewModel(analyticsSpec)
 
         Surface {
             Column(
@@ -132,7 +132,7 @@ private fun CounterScreen(onPlainClassClick: () -> Unit) {
                     ComposeButton(onClick = onPlainClassClick) {
                         Text("Plain class +1")
                     }
-                    ComposeButton(onClick = counter::reset) {
+                    ComposeButton(onClick = { counter.reset() }) {
                         Text("Reset")
                     }
                 }
@@ -170,16 +170,16 @@ class CounterFragment : Fragment() {
         val title = (view as LinearLayout).getChildAt(0) as TextView
         val button = view.getChildAt(1) as Button
 
-        fun counter(): CounterViewModel = viewLifecycleViewModelBinding.watch(counterSpec)
-        fun activityCounter(): CounterViewModel = activityViewModelBinding.read(counterSpec)
+        val counter by watchViewModel(counterSpec) { viewLifecycleViewModelBinding }
+        val activityCounter by readViewModel(counterSpec) { activityViewModelBinding }
 
         fun render() {
-            title.text = "Fragment count: ${counter().state.count}"
+            title.text = "Fragment count: ${counter.state.count}"
         }
         render()
 
         button.setOnClickListener {
-            activityCounter().increment("fragment")
+            activityCounter.increment("fragment")
         }
         viewLifecycleViewModelBinding.addUpdateListener(::render)
     }
@@ -190,8 +190,7 @@ class CounterPanelView(context: android.content.Context) : LinearLayout(context)
     private val button = Button(context).apply {
         text = "View +1"
     }
-    private val counter: CounterViewModel
-        get() = viewModelBinding.watch(counterSpec)
+    private val counter: CounterViewModel by watchViewModel(counterSpec) { viewModelBinding }
 
     init {
         orientation = VERTICAL

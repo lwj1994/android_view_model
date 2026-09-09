@@ -1,5 +1,7 @@
 package example.instagram.post_detail
 
+import milu.viewmodel.readViewModel
+import milu.viewmodel.watchViewModel
 import example.instagram.comment.CommentViewModel
 import example.instagram.comment.commentViewModelSpec
 import example.instagram.core.LoadPhase
@@ -30,12 +32,10 @@ class PostDetailViewModel(
     initialState = PostDetailState(),
     equals = { previous, current -> previous == current },
 ) {
-    val repository: PostRepository
-        get() = viewModelBinding.read(postRepositorySpec)
+    val repository: PostRepository by readViewModel(postRepositorySpec) { viewModelBinding }
 
     // Watch makes comment changes notify this module and then its root screen.
-    val comments: CommentViewModel
-        get() = viewModelBinding.watch(commentViewModelSpec(postId, currentUserId))
+    val comments: CommentViewModel by watchViewModel(commentViewModelSpec(postId, currentUserId)) { viewModelBinding }
 
     suspend fun load() {
         if (state.phase == LoadPhase.Loading || state.phase == LoadPhase.Ready) return

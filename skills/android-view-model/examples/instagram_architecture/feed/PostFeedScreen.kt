@@ -28,8 +28,8 @@ fun PostFeedScreen(
     ViewModelBindingProvider(binding = rememberViewModelBinding()) {
         val feedFactory = remember(userId) { postFeedViewModelSpec(userId) }
         val userFactory = remember(userId) { userViewModelSpec(userId) }
-        val feed = watchViewModel(feedFactory)
-        val currentUser = watchViewModel(userFactory)
+        val feed by watchViewModel(feedFactory)
+        val currentUser by watchViewModel(userFactory)
 
         LaunchedEffect(feed, currentUser) {
             // These keyed instances are shared with the startup coordinator.

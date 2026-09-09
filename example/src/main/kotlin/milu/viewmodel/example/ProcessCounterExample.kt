@@ -91,7 +91,7 @@ fun ProcessCounterPanel(showOpenRemoteButton: Boolean) {
             ProcessCounterViewModel(appContext)
         }
     }
-    val counter = watchViewModel(spec)
+    val counter by watchViewModel(spec)
     val processLabel = if (showOpenRemoteButton) "main" else ":remote"
 
     Column(
@@ -106,10 +106,10 @@ fun ProcessCounterPanel(showOpenRemoteButton: Boolean) {
         )
         Text(text = "Activity process: $processLabel (pid ${android.os.Process.myPid()})")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = counter::increment) {
+            Button(onClick = { counter.increment() }) {
                 Text("Process +1")
             }
-            Button(onClick = counter::reset) {
+            Button(onClick = { counter.reset() }) {
                 Text("Reset")
             }
             if (showOpenRemoteButton) {

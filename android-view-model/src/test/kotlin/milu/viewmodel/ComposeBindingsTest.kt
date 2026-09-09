@@ -46,7 +46,8 @@ class ComposeBindingsTest {
             withTestComposition {
                 var composed: ComposeGenerationViewModel? = null
                 setContent {
-                    composed = readViewModel(spec, binding)
+                    val current by readViewModel(spec, binding)
+                    composed = current
                 }
                 awaitIdle()
                 val first = requireNotNull(composed)
@@ -108,9 +109,68 @@ class ComposeBindingsTest {
                 assertEquals(1, selected)
                 assertEquals(2, recompositions)
                 assertSame(viewModel, binding.read(spec))
+
+                binding.recycle(viewModel)
+                awaitIdle()
+                assertEquals(0, selected)
+                val replacement = binding.read(spec)
+                assertNotSame(viewModel, replacement)
+                replacement.change(count = 2)
+                awaitIdle()
+                assertEquals(2, selected)
             }
         } finally {
             binding.dispose()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun delegates_callbacksResolveBeforeRecomposition_andKeepNotificationSemantics() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            for (watch in listOf(false, true)) {
+                val binding = ViewModelBinding()
+                var generation = 0
+                val spec = viewModelSpec { ComposeGenerationViewModel(++generation) }
+                try {
+                    withTestComposition {
+                        var callback: () -> ComposeGenerationViewModel = { error("Not composed") }
+                        var recompositions = 0
+                        var renderedGeneration = 0
+                        setContent {
+                            recompositions++
+                            val model by if (watch) {
+                                watchViewModel(spec, binding)
+                            } else {
+                                readViewModel(spec, binding)
+                            }
+                            renderedGeneration = model.generation
+                            callback = { model }
+                        }
+                        awaitIdle()
+                        val originalCallback = callback
+                        val first = originalCallback()
+                        repeat(10) { assertSame(first, originalCallback()) }
+                        first.notifyListeners()
+                        awaitIdle()
+                        assertEquals(if (watch) 2 else 1, recompositions)
+
+                        binding.recycle(first)
+                        // 无需等待重组，保留的旧回调已能取得新 generation。
+                        val second = originalCallback()
+                        assertNotSame(first, second)
+                        assertEquals(2, second.generation)
+                        awaitIdle()
+                        assertEquals(2, renderedGeneration)
+                        assertSame(second, callback())
+                        assertEquals(2, generation)
+                    }
+                } finally {
+                    binding.dispose()
+                }
+            }
+        } finally {
             Dispatchers.resetMain()
         }
     }

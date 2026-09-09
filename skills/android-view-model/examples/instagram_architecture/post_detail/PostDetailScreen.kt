@@ -39,7 +39,7 @@ fun PostDetailScreen(
         val detailFactory = remember(postId, currentUserId) {
             postDetailViewModelSpec(postId, currentUserId)
         }
-        val detail = watchViewModel(detailFactory)
+        val detail by watchViewModel(detailFactory)
         val scope = rememberCoroutineScope()
         var message by remember { mutableStateOf("") }
 

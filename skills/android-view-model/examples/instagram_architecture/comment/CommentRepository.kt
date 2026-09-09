@@ -1,5 +1,6 @@
 package example.instagram.comment
 
+import milu.viewmodel.readViewModel
 import example.instagram.core.InstagramApi
 import example.instagram.core.instagramApiSpec
 import example.instagram.models.Comment
@@ -14,8 +15,7 @@ val commentRepositorySpec = viewModelSpec(
 }
 
 class CommentRepository : ViewModel() {
-    val api: InstagramApi
-        get() = viewModelBinding.read(instagramApiSpec)
+    val api: InstagramApi by readViewModel(instagramApiSpec) { viewModelBinding }
 
     suspend fun comments(postId: String): List<Comment> = api.fetchComments(postId)
 

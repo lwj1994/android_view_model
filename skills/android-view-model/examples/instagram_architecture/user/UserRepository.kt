@@ -1,5 +1,6 @@
 package example.instagram.user
 
+import milu.viewmodel.readViewModel
 import example.instagram.core.InstagramApi
 import example.instagram.core.instagramApiSpec
 import example.instagram.models.User
@@ -13,8 +14,7 @@ val userRepositorySpec = viewModelSpec(
 }
 
 class UserRepository : ViewModel() {
-    val api: InstagramApi
-        get() = viewModelBinding.read(instagramApiSpec)
+    val api: InstagramApi by readViewModel(instagramApiSpec) { viewModelBinding }
 
     suspend fun user(id: String): User = api.fetchUser(id)
 }

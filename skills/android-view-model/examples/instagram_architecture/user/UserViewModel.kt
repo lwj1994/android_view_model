@@ -1,5 +1,6 @@
 package example.instagram.user
 
+import milu.viewmodel.readViewModel
 import example.instagram.core.LoadPhase
 import example.instagram.models.User
 import milu.viewmodel.StateViewModel
@@ -24,8 +25,7 @@ class UserViewModel(
     equals = { previous, current -> previous == current },
 ) {
     // Repository notifications do not need to refresh this feature module.
-    val repository: UserRepository
-        get() = viewModelBinding.read(userRepositorySpec)
+    val repository: UserRepository by readViewModel(userRepositorySpec) { viewModelBinding }
 
     suspend fun load(force: Boolean = false) {
         if (state.phase == LoadPhase.Loading) return

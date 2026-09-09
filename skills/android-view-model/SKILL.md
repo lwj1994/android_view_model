@@ -41,16 +41,17 @@ Use this skill when:
 
 1. Keep a stable, module-level spec. Do this for Compose, Android hosts, plain
    bindings, tests, and ViewModel-to-ViewModel dependencies.
-2. Resolve that spec with `watch(spec)` when ViewModel notifications should
-   update the owner, or `read(spec)` when lifecycle-bound access should not
-   listen to the ViewModel's own notifications. Both APIs create/reuse, bind,
-   and observe handle disposal, including force-recycle.
+2. Declare `val vm by watchViewModel(spec)` when ViewModel notifications should
+   update the owner, or `val vm by readViewModel(spec)` without broad observation.
+   Outside Compose, pass a binding lambda such as `{ viewModelBinding }`.
+   Both delegates create/reuse, bind, and observe handle disposal, including
+   force-recycle. Do not require handwritten getters in business code.
 3. Use a cached API only when the task explicitly requires an advanced
    cross-owner query of an instance already created elsewhere. Cached APIs
    cannot create a missing dependency and must not be suggested as normal DI.
 
 A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
-`watch` or `read`; knowing cache identity is not a reason to bypass the spec.
+`watchViewModel` or `readViewModel`; knowing cache identity is not a reason to bypass the spec.
 
 ## Resolved-instance ownership boundary (must follow)
 
@@ -62,8 +63,8 @@ A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
   the receiver; it can leave the receiver holding a disposed generation after
   recycle, let the receiver outlive the owning binding, or retain the instance
   beyond its intended lifecycle.
-- Pass the stable spec and resolve it at each consuming owner. Use resolver
-  properties for ViewModel-to-ViewModel dependencies. Across UI boundaries,
+- Pass the stable spec and resolve it at each consuming owner. Use `by` delegates
+  for ViewModel-to-ViewModel dependencies. Across UI boundaries,
   pass immutable render values and event callbacks.
 - An explicit key can make independent consumers resolve the same managed
   instance. It does not make transporting the resolved instance safe.
@@ -147,7 +148,7 @@ val draftViewModelSpec = viewModelSpecWithArg<DraftViewModel, String>(
 @Composable
 fun PageA(documentId: String) {
     ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-        val draft = watchViewModel(draftViewModelSpec(documentId))
+        val draft by watchViewModel(draftViewModelSpec(documentId))
         Text(draft.title)
     }
 }
@@ -155,10 +156,10 @@ fun PageA(documentId: String) {
 @Composable
 fun PageB(documentId: String) {
     ViewModelBindingProvider(binding = rememberRetainedViewModelBinding()) {
-        val draft = watchViewModel(draftViewModelSpec(documentId))
+        val draft by watchViewModel(draftViewModelSpec(documentId))
         TextField(
             value = draft.title,
-            onValueChange = draft::updateTitle,
+            onValueChange = { draft.updateTitle(it) },
         )
     }
 }
@@ -167,9 +168,9 @@ fun PageB(documentId: String) {
 - A and B resolve the same instance because they use the same resolved
   ViewModel type and key. There is no need to use a cached API to retrieve an
   instance created by the other screen.
-- Both `watch(spec)` and `read(spec)` bind the instance to the current screen.
-  Use `watch` when the screen must react to ViewModel notifications; use `read`
-  when it only invokes methods.
+- Both delegates bind the instance to the current screen. Use
+  `by watchViewModel(spec)` for ViewModel notifications and
+  `by readViewModel(spec)` when the screen only invokes methods.
 - While A and B both exist, each retained destination binding owns the instance.
   Removing B releases only B's ownership, so A keeps the instance alive. When A
   is also removed, the final ownership path leaves and the instance is
@@ -224,33 +225,48 @@ process, `RemoteProcessActivity` in `:remote`, and a non-exported
 `ProcessCounterStateProvider` in `:state_store`. Its in-memory Provider is an IPC
 demonstration, not process-death persistence.
 
+## 属性委托（业务代码统一入口）
+
+- Compose 使用 `val vm by watchViewModel(spec)` / `readViewModel(spec)`，函数返回委托。
+- Host、普通类和嵌套 VM 使用 `val vm by watchViewModel(spec) { viewModelBinding }`
+  或 read 版本；普通类可传 `{ scope.viewModelBinding }`。
+- 委托在每次访问时取当前 binding 并解析 VM，不缓存实例。首次访问建立 ownership；
+  Compose 额外在组合阶段解析并订阅通知/disposal，recycle 后回调无需等待重组即可解析。
+- 不使用 `by lazy`、`remember { vm }`、存储 VM 或跨 owner 传递委托。
+- 回调必须写 `{ vm.action() }`，不要用会捕获旧实例的 `vm::action`。
+- 稳定 spec 在声明委托时确定；禁止将旧回调带出原 ownership 生命周期。
+- `watchViewModelState/selectViewModelState` 返回渲染值；底层 binding `watch/read`
+  供委托解析，cached API 仍然只是高级查询入口。
+
+实现原理：委托的 `getValue()`（getter）负责每次访问时重新解析，业务代码无需手写 getter。
+
 ## Choosing a binding
 
 | Context | Recommended API | Lifecycle |
 | --- | --- | --- |
 | Compose retained by Activity/Fragment | `rememberRetainedViewModelBinding()` | Cleared with current `ViewModelStoreOwner`. |
 | Compose local composition | `rememberViewModelBinding()` | Disposed when composition leaves. |
-| Compose broad rebuild | `watchViewModel(spec)` | Subscribes to VM notifications. |
-| Compose access without broad rebuild | `readViewModel(spec)` | Bound, no VM-wide subscription. |
+| Compose broad rebuild | `by watchViewModel(spec)` | Subscribes to VM notifications. |
+| Compose access without broad rebuild | `by readViewModel(spec)` | Bound, no VM-wide subscription. |
 | Compose selected state | `selectViewModelState(spec, selector, equals?)` | Read-style ownership; recomposes only for selected changes. |
-| Activity / Fragment instance | `viewModelBinding.watch/read(spec)` | Cleared with host `ViewModelStore`. |
-| Fragment view lifecycle | `viewLifecycleViewModelBinding.watch/read(spec)` | Disposed with the Fragment view. |
-| Activity-shared Fragment access | `activityViewModelBinding.watch/read(spec)` | Uses Activity ownership. |
-| Custom View local scope | `viewModelBinding.watch/read(spec)` | Disposed on detach. |
-| View tree owner | `viewTreeViewModelBinding.watch/read(spec)` | Reuses nearest owner binding. |
+| Activity / Fragment instance | `by watchViewModel(spec) { viewModelBinding }` | Cleared with host `ViewModelStore`. |
+| Fragment view lifecycle | `by watchViewModel(spec) { viewLifecycleViewModelBinding }` | Disposed with the Fragment view. |
+| Activity-shared Fragment access | `by watchViewModel(spec) { activityViewModelBinding }` | Uses Activity ownership. |
+| Custom View local scope | `by watchViewModel(spec) { viewModelBinding }` | Disposed on detach. |
+| View tree owner | `by watchViewModel(spec) { viewTreeViewModelBinding }` | Reuses nearest owner binding. |
 | Plain class / tests | `ViewModelBindingScope()` or `ViewModelBinding()` | Caller must close/dispose. |
 
-Use resolver properties instead of `by lazy` or stored references when an
-explicit global recycle can occur:
+Declare host ViewModels with `by` delegates:
 
 ```kotlin
 class MainActivity : FragmentActivity() {
-    private val orders: OrdersViewModel
-        get() = viewModelBinding.watch(ordersSpec)
+    private val orders: OrdersViewModel by watchViewModel(ordersSpec) { viewModelBinding }
 }
 ```
 
-## Primary binding APIs (recommended)
+## 底层 binding 解析语义
+
+业务代码使用上述 `by` 委托；下表说明委托内部调用的解析机制。
 
 | API | Creates? | Owns on hit? | VM notifications | Handle disposal |
 | --- | ---: | ---: | ---: | ---: |
@@ -283,16 +299,17 @@ They must not hide unrelated exceptions from key/tag code or the runtime.
 `listen`, `listenState`, and `listenStateSelect` are binding-owned side effects.
 They resolve through `read` and are removed when the target handle or binding is
 disposed. They are never migrated to another object. Never place a `listen` call
-in a repeatedly evaluated resolver property.
+inside a delegate's binding lambda; register listeners once during initialization.
 
 ## Response pattern for implementation requests
 
-- Default every normal resolution example to a stable spec plus `watch(spec)`
-  or `read(spec)`.
+- Default every normal resolution example to a stable spec plus
+  `by watchViewModel(spec)` or `by readViewModel(spec)`, with a binding lambda
+  outside Compose.
 - Preserve spec-based resolution in refactors and migrations. Never introduce a
   cached API merely because a key or tag is available.
 - For temporary sharing across screens or independent bindings, let every
-  participant resolve the same keyed spec with `watch` or `read`. Their bindings
+  participant use a `by` delegate with the same keyed spec. Their bindings
   collectively define the local lifetime, and the instance auto-disposes after
   the final participant unbinds.
 - Distinguish process-local instance sharing from Android cross-process state
@@ -308,7 +325,7 @@ in a repeatedly evaluated resolver property.
 
 ## ViewModel-to-ViewModel composition
 
-Expose dependencies through resolver properties. Do not retain a nested
+Declare dependencies with `by watchViewModel/readViewModel` delegates. Do not retain a nested
 ViewModel in `by lazy`, a stored property, or an ad-hoc cache.
 
 ```kotlin
@@ -316,22 +333,20 @@ val cartSpec = viewModelSpec { CartViewModel() }
 val pricingSpec = viewModelSpec { PricingViewModel() }
 
 class CheckoutViewModel : ViewModel() {
-    val cart: CartViewModel
-        get() = viewModelBinding.read(cartSpec)
+    val cart: CartViewModel by readViewModel(cartSpec) { viewModelBinding }
 
-    val pricing: PricingViewModel
-        get() = viewModelBinding.watch(pricingSpec)
+    val pricing: PricingViewModel by watchViewModel(pricingSpec) { viewModelBinding }
 }
 ```
 
-- A resolver declaration creates nothing until accessed.
+- A nested ViewModel delegate creates nothing until first accessed.
 - Use `read` to call a child without bubbling its own notifications.
 - Use `watch` to automatically forward child notifications through the parent,
   ultimately refreshing bindings that watch the parent. This remains distinct
   from `read`; removing a hook does not remove the watch subscription.
 - There is no `onDependencyNotify` override hook. Business reactions use binding
   `listen`, `listenState`, or `listenStateSelect`, registered once during
-  initialization, never in a resolver getter. Do not reintroduce a dependency
+  initialization, never in a delegate's binding lambda. Do not reintroduce a dependency
   update callback as a substitute for those explicit subscriptions.
 - `listen*` uses read-style ownership and does not implicitly notify the parent.
   Call `setState`, `update`, or `notifyListeners` explicitly when the business
@@ -354,9 +369,9 @@ class CheckoutViewModel : ViewModel() {
   path and force-disposes the managed object, including `aliveForever`.
 - There is no in-place replacement capability. Use a new explicit key for an
   independent instance. If global replacement is intentional, call `recycle`
-  and let getter-based `watch(spec)` / `read(spec)` create a new handle and
-  dependency tree on the next access; do not migrate old relationships.
-- Always re-resolve through a property after `recycle`; a stored reference
+  and access the delegated property again. The delegate creates a new handle
+  and dependency tree automatically; do not migrate old relationships.
+- Keep using the delegated property after `recycle`; a stored reference
   points to the disposed generation.
 - Compose `watchViewModel` and `readViewModel` observe handle disposal and
   re-resolve their stable spec after recycle instead of retaining that disposed
@@ -431,7 +446,7 @@ Every zero- through four-argument spec supports `overrideWith` and
 4. Assuming `read` is non-binding; it still owns the instance.
 5. Using cached lookup as a replacement for a stable spec.
 6. Resolving any unkeyed `aliveForever` ViewModel, at root or nested scope.
-7. Registering `listen` inside a resolver property.
+7. Registering `listen` inside a delegate's binding lambda.
 8. Pairing selector observation with a broad `watch` subscription.
 9. Creating specs inside Composables or render methods.
 10. Calling public APIs from a background thread.
@@ -457,8 +472,8 @@ Every zero- through four-argument spec supports `overrideWith` and
   `maxParallelForks = 1`; downstream CI must preserve this invariant.
 - Put constructor calls inside `viewModelSpec` builders. Resolve managed
   instances through a test binding instead of constructing them directly.
-- Do not retain ViewModels in test fields; use a getter backed by the test
-  binding.
+- Do not retain resolved ViewModels in test fields; use
+  `by readViewModel(spec) { binding }` for shared fixtures.
 - Dispose every test binding and call the complete `ViewModel.reset()` between cases.
 - Prefer `runWithOverride` for coroutine mocks. Invoke an `overrideWith` restore
   callback in `finally`; legacy `setProxy` / `clearProxy` also requires
@@ -466,8 +481,7 @@ Every zero- through four-argument spec supports `overrideWith` and
 
 ```kotlin
 private lateinit var binding: ViewModelBinding
-private val feature: FeatureViewModel
-    get() = binding.read(featureSpec)
+private val feature: FeatureViewModel by readViewModel(featureSpec) { binding }
 
 @Before
 fun setUp() {

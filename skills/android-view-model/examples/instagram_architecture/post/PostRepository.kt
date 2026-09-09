@@ -1,5 +1,6 @@
 package example.instagram.post
 
+import milu.viewmodel.readViewModel
 import example.instagram.core.InstagramApi
 import example.instagram.core.instagramApiSpec
 import example.instagram.models.Post
@@ -13,8 +14,7 @@ val postRepositorySpec = viewModelSpec(
 }
 
 class PostRepository : ViewModel() {
-    val api: InstagramApi
-        get() = viewModelBinding.read(instagramApiSpec)
+    val api: InstagramApi by readViewModel(instagramApiSpec) { viewModelBinding }
 
     suspend fun feed(userId: String): List<Post> = api.fetchFeed(userId)
 

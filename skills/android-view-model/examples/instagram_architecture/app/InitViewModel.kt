@@ -1,5 +1,6 @@
 package example.instagram.app
 
+import milu.viewmodel.readViewModel
 import example.instagram.core.LoadPhase
 import example.instagram.feed.PostFeedViewModel
 import example.instagram.feed.postFeedViewModelSpec
@@ -25,11 +26,9 @@ class InitViewModel(
     initialState = InitState(),
     equals = { previous, current -> previous == current },
 ) {
-    val user: UserViewModel
-        get() = viewModelBinding.read(userViewModelSpec(currentUserId))
+    val user: UserViewModel by readViewModel(userViewModelSpec(currentUserId)) { viewModelBinding }
 
-    val feed: PostFeedViewModel
-        get() = viewModelBinding.read(postFeedViewModelSpec(currentUserId))
+    val feed: PostFeedViewModel by readViewModel(postFeedViewModelSpec(currentUserId)) { viewModelBinding }
 
     suspend fun initialize() {
         if (state.phase == LoadPhase.Loading || state.phase == LoadPhase.Ready) return

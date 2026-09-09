@@ -63,8 +63,8 @@ PostDetailScreen composition binding
 - The API, repositories, feature state, and startup coordinator are managed
   ViewModels. Data entities remain immutable Kotlin data classes.
 - Every spec is stable and declared beside the module it constructs. Normal
-  dependency resolution always keeps the spec and calls `read(spec)` or
-  `watch(spec)`; the example never uses cached lookup.
+  dependency declarations keep the spec and use `by readViewModel(spec)` or
+  `by watchViewModel(spec)`; the example never uses cached lookup.
 - Identity-bearing modules receive context explicitly. Parameterized specs
   derive keys from `userId` and `postId`, so separate users and posts cannot
   collide.
@@ -76,8 +76,10 @@ PostDetailScreen composition binding
 - `PostDetailViewModel` watches `CommentViewModel` because comment state must
   propagate through the parent and recompose the detail screen. Command-only
   dependencies use `read`.
-- Every nested ViewModel is exposed through a resolver property. No dependency
+- Every nested ViewModel is declared with a `by` delegate. No dependency
   is stored with `by lazy` or in another long-lived field.
+- Event callbacks use `{ vm.action() }`, keeping VM access inside the delegate;
+  do not use bound method references such as `vm::action`.
 - Applied parameterized specs are memoized with `remember(...)` before they are
   passed to `watchViewModel`. This keeps the factory stable across
   recompositions while the spec-derived key defines instance identity.
@@ -90,6 +92,6 @@ PostDetailScreen composition binding
 ## Suggested Reading Order
 
 1. Start with `app/InitViewModel.kt` to see startup coordination.
-2. Follow its resolver properties into the user and feed modules.
+2. Follow its delegated properties into the user and feed modules.
 3. Open `post_detail/PostDetailViewModel.kt` to see a watched child module.
 4. Compare the retained app binding with the feature-local bindings.

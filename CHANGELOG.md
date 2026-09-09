@@ -7,6 +7,21 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-09
+
+### Changed
+
+- **Breaking:** Compose `watchViewModel/readViewModel` 改为返回属性委托，使用
+  `val vm by watchViewModel(spec)`，不保留直接返回 VM 的旧用法。
+- Host、普通类与嵌套 VM 使用带延迟 binding lambda 的同名委托入口。
+  每次属性访问重新解析当前 generation，事件回调在 recycle 后无需等待重组。
+- 同步 README、Skill 与示例；回调改用 lambda，避免绑定方法引用捕获旧 VM。
+
+### Tests
+
+- 覆盖委托延迟解析、重复访问去重、binding 更换、parent 销毁及 Compose
+  watch/read 通知差异，并验证 recycle 后原事件回调读取新 generation。
+
 ## [0.6.0] - 2026-09-09
 
 ### Removed

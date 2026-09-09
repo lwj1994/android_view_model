@@ -62,10 +62,11 @@ public fun ViewModelBindingProvider(
 }
 
 /**
- * Primary Compose resolution API for broad reactive access through a stable spec/factory.
+ * Compose 属性委托入口：使用 `val vm by watchViewModel(spec)`。
+ * 组合期间建立刷新订阅；每次属性访问（包括事件回调）重新解析当前 generation。
  *
  * A [ViewModel.notifyListeners] call invalidates the composable scope that calls this
- * function. Observation does not travel with the returned ViewModel reference: under
+ * function. Observation does not travel with a ViewModel resolved by the delegate: under
  * Compose strong skipping, a child composable that receives the same ViewModel instance
  * may be skipped. Never pass a ViewModel instance as a child composable parameter. Pass
  * immutable render values and event callbacks instead, or let the consuming composable
@@ -77,15 +78,17 @@ public fun <VM : ViewModel> watchViewModel(
     factory: ViewModelFactory<VM>,
     binding: ViewModelBinding = currentViewModelBinding(),
     vararg keys: Any?,
-): VM {
+): ViewModelDelegate<VM> {
     val version = observeBindingUpdateVersion(binding)
     return remember(binding, factory, version, *keys) {
         binding.watch(factory)
+        watchViewModel(factory) { binding }
     }
 }
 
 /**
- * Primary Compose resolution API for lifecycle-bound access without broad VM observation.
+ * Compose 只读委托入口：使用 `val vm by readViewModel(spec)`。
+ * 不监听 VM 自身通知，但观察 generation 销毁；每次属性访问重新解析。
  */
 @Composable
 @MainThread
@@ -93,13 +96,14 @@ public fun <VM : ViewModel> readViewModel(
     factory: ViewModelFactory<VM>,
     binding: ViewModelBinding = currentViewModelBinding(),
     vararg keys: Any?,
-): VM {
+): ViewModelDelegate<VM> {
     // `read` ignores broad ViewModel/binding notifications. This dedicated
     // generation version changes only when one of the binding's handles is
     // disposed/recycled, allowing the stable spec to resolve a replacement.
     val version = observeBindingGenerationVersion(binding)
     return remember(binding, factory, version, *keys) {
         binding.read(factory)
+        readViewModel(factory) { binding }
     }
 }
 
@@ -110,7 +114,8 @@ public fun <State, VM : StateViewModel<State>> watchViewModelState(
     binding: ViewModelBinding = currentViewModelBinding(),
     vararg keys: Any?,
 ): State {
-    return watchViewModel(factory, binding, *keys).state
+    val viewModel by watchViewModel(factory, binding, *keys)
+    return viewModel.state
 }
 
 /**
@@ -129,7 +134,9 @@ public fun <State, Selected, VM : StateViewModel<State>> selectViewModelState(
     binding: ViewModelBinding = currentViewModelBinding(),
     vararg keys: Any?,
 ): Selected {
-    val viewModel = readViewModel(factory, binding, *keys)
+    val resolved by readViewModel(factory, binding, *keys)
+    // effect 必须订阅本次组合的 generation，清理也必须针对同一实例。
+    val viewModel = resolved
     var selected by remember(viewModel, selector, equals, *keys) {
         mutableStateOf(
             value = selector(viewModel.state),

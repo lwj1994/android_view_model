@@ -1,5 +1,6 @@
 package milu.viewmodel.example
 
+import milu.viewmodel.readViewModel
 import milu.viewmodel.StateViewModel
 import milu.viewmodel.ViewModel
 import milu.viewmodel.viewModelSpec
@@ -13,8 +14,7 @@ class CounterViewModel : StateViewModel<CounterState>(
     initialState = CounterState(),
     equals = { previous, current -> previous == current },
 ) {
-    val analytics: AnalyticsViewModel
-        get() = viewModelBinding.read(analyticsSpec)
+    val analytics: AnalyticsViewModel by readViewModel(analyticsSpec) { viewModelBinding }
 
     fun increment(source: String) {
         analytics.track("increment from $source")
@@ -50,8 +50,7 @@ val counterSpec = viewModelSpec(key = "counter") {
 
 class PlainCounterController : AutoCloseable {
     private val scope = milu.viewmodel.ViewModelBindingScope()
-    private val counter: CounterViewModel
-        get() = scope.viewModelBinding.read(counterSpec)
+    private val counter: CounterViewModel by readViewModel(counterSpec) { scope.viewModelBinding }
 
     fun incrementFromPlainClass() {
         counter.increment("plain class")

@@ -334,16 +334,11 @@ private class ParentViewModel : ViewModel() {
     var notifications = 0
     var listenCallbacks = 0
 
-    val child: ChildViewModel
-        get() = viewModelBinding.read(childSpec)
-    val watchedChild: ChildViewModel
-        get() = viewModelBinding.watch(childSpec)
-    val sharedChild: ChildViewModel
-        get() = viewModelBinding.read(sharedChildSpec)
-    val aliveUnkeyedChild: ChildViewModel
-        get() = viewModelBinding.read(aliveUnkeyedChildSpec)
-    val aliveKeyedChild: ChildViewModel
-        get() = viewModelBinding.read(aliveKeyedChildSpec)
+    val child: ChildViewModel by readViewModel(childSpec) { viewModelBinding }
+    val watchedChild: ChildViewModel by watchViewModel(childSpec) { viewModelBinding }
+    val sharedChild: ChildViewModel by readViewModel(sharedChildSpec) { viewModelBinding }
+    val aliveUnkeyedChild: ChildViewModel by readViewModel(aliveUnkeyedChildSpec) { viewModelBinding }
+    val aliveKeyedChild: ChildViewModel by readViewModel(aliveKeyedChildSpec) { viewModelBinding }
 
     fun listenToChild() {
         viewModelBinding.listen(childSpec) { listenCallbacks += 1 }
@@ -372,8 +367,7 @@ private val diamondLeafSpec = viewModelSpec(key = "diamond-leaf") { ChildViewMod
 
 private class DiamondBranch : ViewModel() {
     var notifications = 0
-    val leaf: ChildViewModel
-        get() = viewModelBinding.watch(diamondLeafSpec)
+    val leaf: ChildViewModel by watchViewModel(diamondLeafSpec) { viewModelBinding }
 
     init {
         listen { notifications += 1 }
@@ -385,10 +379,8 @@ private val rightBranchSpec = viewModelSpec(key = "diamond-right") { DiamondBran
 
 private class DiamondRoot : ViewModel() {
     var notifications = 0
-    val left: DiamondBranch
-        get() = viewModelBinding.watch(leftBranchSpec)
-    val right: DiamondBranch
-        get() = viewModelBinding.watch(rightBranchSpec)
+    val left: DiamondBranch by watchViewModel(leftBranchSpec) { viewModelBinding }
+    val right: DiamondBranch by watchViewModel(rightBranchSpec) { viewModelBinding }
 
     init {
         listen { notifications += 1 }
@@ -438,8 +430,7 @@ private class RuntimeA : ViewModel() {
         lateinit var spec: ViewModelSpec<RuntimeA>
     }
 
-    val dependency: RuntimeB
-        get() = viewModelBinding.read(RuntimeB.spec)
+    val dependency: RuntimeB by readViewModel(RuntimeB.spec) { viewModelBinding }
 }
 
 private class RuntimeB : ViewModel() {
@@ -447,6 +438,5 @@ private class RuntimeB : ViewModel() {
         lateinit var spec: ViewModelSpec<RuntimeB>
     }
 
-    val dependency: RuntimeA
-        get() = viewModelBinding.read(RuntimeA.spec)
+    val dependency: RuntimeA by readViewModel(RuntimeA.spec) { viewModelBinding }
 }
