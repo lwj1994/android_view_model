@@ -453,8 +453,36 @@ Every zero- through four-argument spec supports `overrideWith` and
 - Construct and use ViewModels on the main thread.
 - Call `setState`, `notifyListeners`, `watch`, `read`, `recycle`,
   and `dispose` on the main thread.
-- Use `viewModelScope` for asynchronous work and return to
-  `Dispatchers.Main.immediate` before mutating state.
+- For work explicitly requested to run on a background thread, default to
+  `viewModelScope.launch(Dispatchers.IO)`. Keep the job attached to the owning
+  ViewModel generation so disposal cancels it; do not create an unrelated scope
+  or use `GlobalScope`.
+- `viewModelScope` itself defaults to `Dispatchers.Main.immediate`; plain
+  `launch {}` does not move work to a background thread. For a background step
+  inside an existing scope coroutine, use `withContext(Dispatchers.IO)`.
+- Capture immutable inputs on the main thread before dispatching. On IO, do not
+  resolve ViewModel delegates, access bindings, or read/write mutable ViewModel
+  state. Return to `Dispatchers.Main.immediate` before calling ViewModel APIs
+  or applying results.
+- Use `Dispatchers.Default` for explicitly CPU-intensive computation. Native
+  non-blocking suspend APIs can be awaited from the main scope. IO is the default
+  for unspecified background operations, not a replacement for every dispatcher.
+- Preserve cooperative cancellation, rethrow `CancellationException` if caught,
+  and check request freshness when overlapping work must apply only the latest
+  result. Dispatching blocking code to IO does not automatically interrupt it
+  when the scope is cancelled.
+
+```kotlin
+// Inside a ViewModel method called on the main thread.
+val input = state.documentPath
+viewModelScope.launch(Dispatchers.IO) {
+    val text = java.io.File(input).readText()
+    withContext(Dispatchers.Main.immediate) {
+        setState(state.copy(content = text))
+    }
+}
+```
+
 - Keep `rememberViewModelBinding()` as the local default: one independent binding
   per call site, disposed when that call leaves the composition.
 - Opt into `rememberScreenViewModelBinding()` for current-owner sharing and
