@@ -8,25 +8,35 @@ internal class AutoDisposeInstanceController(
     private val onHandleDisposing: () -> Unit,
     private val onInstanceAttached: ((InstanceHandle<*>, ViewModel) -> Unit)? = null,
     private val onInstanceDetached: ((InstanceHandle<*>, ViewModel) -> Unit)? = null,
+    private val onInstanceDetachmentComplete: ((InstanceHandle<*>, ViewModel) -> Unit)? = null,
 ) {
     private val trackedHandles = IdentityHashMap<InstanceHandle<*>, InstanceHandle<*>>()
     private val listenerDisposers = IdentityHashMap<InstanceHandle<*>, () -> Unit>()
     private var disposed = false
+    var isUnbinding: Boolean = false
+        private set
 
     fun <Value : Any> getInstance(
         type: KClass<Value>,
         factory: InstanceFactory<Value>,
-    ): Value {
+    ): Value = getHandle(type, factory).requireInstance()
+
+    /** Resolves and tracks the handle so bindings can reuse their direct ownership. */
+    fun <Value : Any> getHandle(
+        type: KClass<Value>,
+        factory: InstanceFactory<Value>,
+    ): InstanceHandle<Value> {
         if (disposed || binding.isDisposed) {
             throw ViewModelError("AutoDisposeInstanceController.getInstance() called after dispose.")
         }
+        requireNotUnbinding()
         val factoryWithBinding = factory.copy(
             arg = factory.arg.copy(bindingId = binding.id),
         )
         val handle = InstanceManager.getHandle(type, factoryWithBinding)
         (handle.value as? ViewModel)?.refHandler?.addRef(binding)
         attachHandleListener(handle)
-        return handle.requireInstance()
+        return handle
     }
 
     fun <Value : Any> getInstancesByTag(
@@ -39,6 +49,7 @@ internal class AutoDisposeInstanceController(
         if (disposed || binding.isDisposed) {
             throw ViewModelError("AutoDisposeInstanceController.getInstancesByTag() called after dispose.")
         }
+        requireNotUnbinding()
         val handles = InstanceManager.getHandlesByTag(tag, type)
         val result = mutableListOf<Value>()
         handles.forEach { handle ->
@@ -51,14 +62,22 @@ internal class AutoDisposeInstanceController(
     }
 
     fun <Value : Any> unbind(value: Value) {
+        requireNotUnbinding()
         val handle = trackedHandles.keys.firstOrNull { candidate ->
             @Suppress("UNCHECKED_CAST")
             (candidate as InstanceHandle<Value>).value === value
         } ?: return
-        detachViewModelRef(handle)
-        detachHandle(handle)
-        @Suppress("UNCHECKED_CAST")
-        (handle as InstanceHandle<Value>).unbind(binding.id)
+        val viewModel: ViewModel?
+        isUnbinding = true
+        try {
+            detachHandle(handle)
+            viewModel = detachViewModelRef(handle)
+            @Suppress("UNCHECKED_CAST")
+            (handle as InstanceHandle<Value>).unbind(binding.id)
+        } finally {
+            isUnbinding = false
+        }
+        if (viewModel != null) onInstanceDetachmentComplete?.invoke(handle, viewModel)
     }
 
     fun dispose() {
@@ -66,9 +85,10 @@ internal class AutoDisposeInstanceController(
         disposed = true
         trackedHandles.keys.toList().forEach { handle ->
             try {
-                detachViewModelRef(handle)
-                listenerDisposers.remove(handle)?.invoke()
+                detachHandle(handle)
+                val viewModel = detachViewModelRef(handle)
                 if (!handle.isDisposed) handle.unbind(binding.id)
+                if (viewModel != null) onInstanceDetachmentComplete?.invoke(handle, viewModel)
             } catch (error: Throwable) {
                 reportViewModelError(
                     error,
@@ -86,10 +106,17 @@ internal class AutoDisposeInstanceController(
         trackedHandles.remove(handle)
     }
 
-    private fun detachViewModelRef(handle: InstanceHandle<*>) {
-        val viewModel = handle.value as? ViewModel ?: return
+    private fun requireNotUnbinding() {
+        if (isUnbinding) {
+            throw ViewModelError("Cannot resolve or unbind ViewModels while this binding is unbinding.")
+        }
+    }
+
+    private fun detachViewModelRef(handle: InstanceHandle<*>): ViewModel? {
+        val viewModel = handle.value as? ViewModel ?: return null
         if (!viewModel.isDisposed) viewModel.refHandler.removeRef(binding)
         onInstanceDetached?.invoke(handle, viewModel)
+        return viewModel
     }
 
     private fun <Value : Any> attachHandleListener(handle: InstanceHandle<Value>) {
@@ -107,8 +134,9 @@ internal class AutoDisposeInstanceController(
         trackedHandles[handle] = handle
         listenerDisposers[handle] = handle.addListener { current ->
             try {
-                detachViewModelRef(current)
                 detachHandle(current)
+                val viewModel = detachViewModelRef(current)
+                if (viewModel != null) onInstanceDetachmentComplete?.invoke(current, viewModel)
                 if (!InstanceManager.isResetting) onHandleDisposing()
             } catch (error: Throwable) {
                 reportViewModelError(

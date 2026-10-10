@@ -91,8 +91,10 @@ A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
 
 ## Identity, sharing, and retention
 
-- Identity is the resolved ViewModel type plus the effective `key`. The
-  builder's runtime result and `tag` do not participate in identity.
+- Treat identity as the resolved ViewModel type plus the effective `key`.
+  Do not include the spec object, builder, constructor arguments, builder's
+  runtime result, or `tag` in identity. Different unkeyed specs or arguments
+  of the same type reuse one instance within a binding; later builders do not run.
 - With no explicit key, one binding reuses one instance per resolved ViewModel
   type and remains isolated from other bindings.
 - Use a key for intentional cross-binding sharing or multiple instances of the
@@ -119,7 +121,8 @@ val sessionSpec = viewModelSpec(
 
 Parameterized factories use `viewModelSpecWithArg` and
 `viewModelSpecWithArg2...4`. Prefer a key derived from arguments when equal
-arguments are intended to share.
+arguments are intended to share and different arguments should create separate
+instances; arguments alone do not distinguish unkeyed instances.
 
 ### Local scope: sharing one instance across pages
 
@@ -296,6 +299,15 @@ mechanism used inside those delegates.
 | `watch(spec)` | Yes | Yes | Yes | Yes |
 | `read(spec)` | Yes | Yes | No | Yes |
 
+Keep delegate resolution on every access. The binding caches live handles by
+resolved type and effective key and skips Store lookup only while it still owns
+the handle directly and the handle is not being recycled. Preserve watch
+subscription upgrades and `aliveForever`
+key validation on hits; propagated ownership alone cannot satisfy the fast path.
+Invalidate cached resolutions on unbind, recycle, handle disposal, and reset,
+and clear them when the binding is disposed. Reacquire direct ownership on the
+next access after unbind, or create a new generation if the old one was disposed.
+
 ## Cached lookup APIs (advanced)
 
 Do not replace a stable spec with cache lookup. These APIs couple the caller to
@@ -312,9 +324,18 @@ cross-owner state.
 | `watchCachesByTag<T>` | No, all hits | Yes | Yes | Yes |
 | `readCachesByTag<T>` | No, all hits | Yes | No | Yes |
 
-Non-`maybe` single-result cached lookups throw on a miss. A single lookup by tag
-can be ambiguous and depends on cache creation order; use the batch API when a
-tag may match several instances.
+Preserve key-first lookup, with tag fallback only when a key misses and a tag is
+also supplied. Non-`maybe` single-result cached lookups throw on a miss.
+With neither key nor tag, return the newest instance of that type still cached
+and emit no warning. Use creation order, not access order: reading an older
+instance does not move it forward; creation or recycle can change the next result.
+Apply this contract to both binding and static `ViewModel` cached queries.
+
+For a single-result tag query, return the newest equality-matching instance.
+Emit a debug ambiguity warning only for multiple matches, deduplicated by type
+and query tag object identity without calling the tag's `hashCode`. Clear warning
+history on reset. Use an explicit key for one instance or tag-batch APIs for all
+matches; do not turn supported no-argument queries into deprecated APIs.
 
 `maybeWatchCached` and `maybeReadCached` swallow only `ViewModelError` misses.
 They must not hide unrelated exceptions from key/tag code or the runtime.
@@ -388,6 +409,15 @@ class CheckoutViewModel : ViewModel() {
 ## Lifecycle controls and safety
 
 - Routine cleanup is binding-driven; do not call lifecycle hooks directly.
+- Use `binding.unbind(vm)` to release only that binding's direct ownership and
+  attached subscriptions. For a parent dependency binding, also release roots
+  propagated through the removed dependency edge. Preserve independent direct
+  and parent paths; final-owner cleanup still respects `aliveForever`.
+- Reject reentrant `read`, `watch`, cached, and tag-batch ownership acquisition
+  only through the binding whose `unbind` cleanup is in progress, using
+  `ViewModelError`; keep its `maybe*Cached` result `null` and other bindings usable.
+  Defer parent update notifications until detachment finishes, then allow normal
+  resolution from their callbacks to restore ownership or obtain a new generation.
 - `recycle(vm)` is a destructive global escape hatch. It removes every owner
   path and force-disposes the managed object, including `aliveForever`.
 - There is no in-place replacement capability. Use a new explicit key for an
@@ -429,6 +459,10 @@ owned resources with `addDispose` and let the framework invoke cleanup.
   `ViewModel.config.equals` → reference identity.
 - `listenStateSelect` and Compose `selectViewModelState` compare selected values
   with local `equals` → global `ViewModel.config.equals` → Kotlin `==`.
+- Type `listenState` callbacks as `(T, T) -> Unit` and selected callbacks as
+  `(R, R) -> Unit`. Emit no initial callback. Preserve nullable values only when
+  the state or selected type itself is nullable; do not add `?` solely because
+  a parameter represents the previous value.
 - A state transition freezes its previous/current pair before listener dispatch;
   a reentrant synchronous `setState` does not corrupt the pair delivered to
   later listeners.

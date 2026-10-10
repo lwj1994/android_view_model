@@ -38,6 +38,16 @@ internal class ViewModelDependencyBinding(
     ) {
         dependencies.remove(handle)
         super.handleInstanceDetached(handle, viewModel)
+        propagatedOwners.toList().forEach { owner ->
+            detachOwner(handle, viewModel, owner)
+        }
+    }
+
+    override fun handleInstanceDetachmentComplete(
+        handle: InstanceHandle<*>,
+        viewModel: ViewModel,
+    ) {
+        super.handleInstanceDetachmentComplete(handle, viewModel)
         notifyParentAfterDetach()
     }
 

@@ -53,6 +53,10 @@ public open class ViewModel(
         /**
          * Advanced lookup-only API for an instance already created by another owner.
          * Prefer [ViewModelBinding.read] with a stable spec for normal dependency resolution.
+         * Tries [key] first, then [tag] if provided. With neither, returns the newest cached
+         * instance by creation order, without warnings; reading an older instance does not
+         * change that order. Single-result tag lookups warn in debug builds when ambiguous.
+         * This static query does not establish binding ownership.
          */
         public inline fun <reified VM : ViewModel> readCached(
             key: Any? = null,
@@ -62,6 +66,7 @@ public open class ViewModel(
         /**
          * Advanced lookup-only API that returns `null` on a miss.
          * Prefer spec-based resolution in normal application code.
+         * Lookup order and debug ambiguity diagnostics are the same as [readCached].
          */
         public inline fun <reified VM : ViewModel> maybeReadCached(
             key: Any? = null,

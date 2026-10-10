@@ -27,7 +27,7 @@ public open class StateViewModel<State>(
 
     public val initialState: State = initialState
 
-    private val stateListeners = linkedMapOf<String, (State?, State) -> Unit>()
+    private val stateListeners = linkedMapOf<String, (State, State) -> Unit>()
     private val processStateSourceId = UUID.randomUUID().toString()
     private val processStateWriteMutex = Mutex()
     private var processStateVersion: Long = 0
@@ -38,7 +38,11 @@ public open class StateViewModel<State>(
         startProcessStateSync()
     }
 
-    public fun listenState(onChanged: (State?, State) -> Unit): () -> Unit {
+    /**
+     * Observes actual state transitions, with both values preserving [State]'s nullability.
+     * Registering a listener does not emit an initial callback.
+     */
+    public fun listenState(onChanged: (State, State) -> Unit): () -> Unit {
         assertMainThread()
         val id = UUID.randomUUID().toString()
         stateListeners[id] = onChanged
@@ -47,7 +51,7 @@ public open class StateViewModel<State>(
 
     public fun <R> listenStateSelect(
         selector: (State) -> R,
-        onChanged: (R?, R) -> Unit,
+        onChanged: (R, R) -> Unit,
     ): () -> Unit = listenStateSelect(
         selector = selector,
         equals = null,
@@ -57,7 +61,7 @@ public open class StateViewModel<State>(
     public fun <R> listenStateSelect(
         selector: (State) -> R,
         equals: ((R, R) -> Boolean)?,
-        onChanged: (R?, R) -> Unit,
+        onChanged: (R, R) -> Unit,
     ): () -> Unit {
         assertMainThread()
         val globalEquals = ViewModel.config.equals
@@ -67,10 +71,7 @@ public open class StateViewModel<State>(
             { previous, current -> globalEquals(previous, current) }
         }
         return listenState { previous, current ->
-            // Every callback represents a real transition, so `previous` is
-            // the actual former state. It may itself be null when State is nullable.
-            @Suppress("UNCHECKED_CAST")
-            val previousSelected = selector(previous as State)
+            val previousSelected = selector(previous)
             val currentSelected = selector(current)
             if (!effectiveEquals(previousSelected, currentSelected)) {
                 onChanged(previousSelected, currentSelected)

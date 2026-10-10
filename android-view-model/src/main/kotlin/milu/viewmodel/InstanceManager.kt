@@ -1,13 +1,20 @@
 package milu.viewmodel
 
+import android.util.Log
 import androidx.annotation.MainThread
+import java.util.IdentityHashMap
 import kotlin.reflect.KClass
 
 @MainThread
 public object InstanceManager {
     private val stores = linkedMapOf<KClass<*>, Store<*>>()
+    private val ambiguousTagLookupWarnings =
+        mutableMapOf<KClass<*>, IdentityHashMap<Any, Boolean>>()
     internal var isResetting: Boolean = false
         private set
+
+    internal val debugAmbiguousTagLookupWarningCount: Int
+        get() = ambiguousTagLookupWarnings.values.sumOf { it.size }
 
     internal fun <Value : Any> get(
         type: KClass<Value>,
@@ -33,6 +40,9 @@ public object InstanceManager {
         if (factory == null || factory.isEmpty) {
             val found = store.findNewest(tag = factory?.arg?.tag)
                 ?: throw ViewModelError("no ${type.qualifiedName} instance found")
+            if (BuildConfig.DEBUG && factory?.arg?.tag != null) {
+                warnAmbiguousTagLookup(type, store, factory.arg.tag)
+            }
             val bindingId = factory?.arg?.bindingId
             if (bindingId != null) {
                 val extendFactory = InstanceFactory<Value>(
@@ -53,6 +63,9 @@ public object InstanceManager {
             } catch (_: ViewModelError) {
                 val found = store.findNewest(tag = factory.arg.tag)
                     ?: throw ViewModelError("no ${type.qualifiedName} instance found")
+                if (BuildConfig.DEBUG) {
+                    warnAmbiguousTagLookup(type, store, factory.arg.tag)
+                }
                 val bindingId = factory.arg.bindingId
                 if (bindingId != null) {
                     return store.getHandle(
@@ -100,11 +113,42 @@ public object InstanceManager {
         if (isResetting) return
         isResetting = true
         try {
+            ambiguousTagLookupWarnings.clear()
             val snapshot = stores.values.toList()
             stores.clear()
             snapshot.forEach { it.dispose() }
         } finally {
             isResetting = false
+        }
+    }
+
+    private fun <Value : Any> warnAmbiguousTagLookup(
+        type: KClass<Value>,
+        store: Store<Value>,
+        tag: Any,
+    ) {
+        // Query equality and diagnostic identity are deliberately separate.
+        // Never require a user-provided tag to implement a usable hashCode.
+        if (ambiguousTagLookupWarnings[type]?.containsKey(tag) == true) return
+        val matches = store.countInstances(tag)
+        if (matches < 2) return
+        ambiguousTagLookupWarnings.getOrPut(type) { IdentityHashMap() }[tag] = true
+
+        // Even Object.toString() can call an overridden hashCode(). Describe
+        // the object without invoking either user-defined method.
+        val tagDescription = "${tag.javaClass.name}@" +
+            Integer.toHexString(System.identityHashCode(tag))
+        try {
+            Log.w(
+                "AndroidViewModel",
+                "A single-result cached lookup of ${type.qualifiedName} by tag " +
+                    "$tagDescription matched $matches instances and returned the " +
+                    "most recently created one. Use readCachesByTag/watchCachesByTag " +
+                    "for a shared tag, or an explicit key for one instance.",
+            )
+        } catch (_: Throwable) {
+            // Android logging may be unavailable in local JVM environments.
+            // Diagnostics must not change a successful lookup's result.
         }
     }
 

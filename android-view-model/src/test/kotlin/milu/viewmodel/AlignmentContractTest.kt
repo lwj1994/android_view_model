@@ -298,7 +298,7 @@ class AlignmentContractTest {
                 if (current.value == 1) viewModel.change(value = 2)
             }
             viewModel.listenState { previous, current ->
-                observed += previous!!.value to current.value
+                observed += previous.value to current.value
             }
 
             viewModel.change(value = 1)
@@ -399,7 +399,7 @@ class AlignmentContractTest {
         val binding = ViewModelBinding()
         try {
             val viewModel = binding.read(alignmentStateSpec())
-            val globalChanges = mutableListOf<Pair<Int?, Int>>()
+            val globalChanges = mutableListOf<Pair<Int, Int>>()
             viewModel.listenStateSelect(
                 selector = AlignmentState::value,
                 onChanged = { previous, current -> globalChanges += previous to current },
@@ -408,7 +408,7 @@ class AlignmentContractTest {
             viewModel.change(value = 3)
             assertEquals(listOf(2 to 3), globalChanges)
 
-            val localChanges = mutableListOf<Pair<Int?, Int>>()
+            val localChanges = mutableListOf<Pair<Int, Int>>()
             viewModel.listenStateSelect(
                 selector = AlignmentState::value,
                 equals = { _, _ -> false },
@@ -426,7 +426,7 @@ class AlignmentContractTest {
         val binding = ViewModelBinding()
         try {
             val viewModel = binding.read(alignmentStateSpec())
-            val changes = mutableListOf<Pair<Int?, Int>>()
+            val changes = mutableListOf<Pair<Int, Int>>()
             viewModel.listenStateSelect(
                 selector = AlignmentState::value,
                 onChanged = { previous, current -> changes += previous to current },

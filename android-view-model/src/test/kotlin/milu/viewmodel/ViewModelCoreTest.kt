@@ -149,7 +149,7 @@ class ViewModelCoreTest {
         val binding = ViewModelBinding()
         try {
             val vm = binding.read(spec)
-            val states = mutableListOf<Pair<CounterState?, CounterState>>()
+            val states = mutableListOf<Pair<CounterState, CounterState>>()
             var generalFired = 0
             vm.listenState { previous, current -> states += previous to current }
             vm.listen { generalFired += 1 }

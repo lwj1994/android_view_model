@@ -24,8 +24,26 @@ internal class Store<Value : Any>(
         if (disposed) {
             throw ViewModelError("Store has been disposed.")
         }
-        if (tag != null) return instancesByTag(tag).firstOrNull()
-        return handles.values.maxByOrNull { it.index }
+        // Creation order, not access order. A scan also remains correct when
+        // the newest handle has been recycled; no cached maximum can go stale.
+        var newest: InstanceHandle<Value>? = null
+        for (handle in handles.values) {
+            if (tag != null && handle.arg.tag != tag) continue
+            if (newest == null || handle.index > newest.index) {
+                newest = handle
+            }
+        }
+        return newest
+    }
+
+    /** Counts cached handles, optionally matching tags by equality alone. */
+    fun countInstances(tag: Any? = null): Int {
+        if (tag == null) return handles.size
+        var count = 0
+        for (handle in handles.values) {
+            if (handle.arg.tag == tag) count += 1
+        }
+        return count
     }
 
     fun getHandle(factory: InstanceFactory<Value>): InstanceHandle<Value> {

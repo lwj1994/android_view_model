@@ -3,6 +3,7 @@ package milu.viewmodel
 import androidx.annotation.MainThread
 import java.util.IdentityHashMap
 import java.util.UUID
+import kotlin.reflect.KClass
 
 /**
  * ViewModel container that can be held by Activity, Fragment, View, Compose, or any plain class.
@@ -45,6 +46,9 @@ public open class ViewModelBinding {
         get() = pauseController.isPaused
 
     private val watchedViewModels = IdentityHashMap<ViewModel, () -> Unit>()
+    // Only directly owned handles can skip resolution and ownership registration.
+    // Spec objects, builders and constructor arguments do not participate in identity.
+    private val resolvedHandles = mutableMapOf<Pair<KClass<*>, Any>, InstanceHandle<*>>()
     private val disposes = mutableListOf<() -> Unit>()
     private val subscriptions = mutableListOf<BindingSubscription>()
     private val updateListeners = linkedMapOf<String, () -> Unit>()
@@ -56,6 +60,7 @@ public open class ViewModelBinding {
         onHandleDisposing = ::handleInstanceChange,
         onInstanceAttached = ::handleInstanceAttached,
         onInstanceDetached = ::handleInstanceDetached,
+        onInstanceDetachmentComplete = ::handleInstanceDetachmentComplete,
     )
 
     public val pauseController: PauseAwareController = makePauseController()
@@ -102,11 +107,18 @@ public open class ViewModelBinding {
         viewModel: ViewModel,
     ) {
         watchedViewModels.remove(viewModel)?.invoke()
+        resolvedHandles.entries.removeAll { it.value === handle }
         subscriptions.filter { it.isAttachedTo(viewModel) }.toList().forEach { subscription ->
             subscription.dispose()
             subscriptions.remove(subscription)
         }
     }
+
+    /** Called after tracker, subscriptions and direct ownership have been released. */
+    internal open fun handleInstanceDetachmentComplete(
+        handle: InstanceHandle<*>,
+        viewModel: ViewModel,
+    ) {}
 
     public open fun onUpdate() {
         assertMainThread()
@@ -163,6 +175,7 @@ public open class ViewModelBinding {
     /**
      * Advanced lookup-only API. Finds an already-created instance and subscribes to it.
      * This never creates an instance; prefer [watch] with a stable spec for normal resolution.
+     * Lookup order and debug ambiguity diagnostics are the same as [readCached].
      */
     public inline fun <reified VM : ViewModel> watchCached(
         key: Any? = null,
@@ -176,6 +189,13 @@ public open class ViewModelBinding {
     /**
      * Advanced lookup-only API. Finds an already-created instance without subscribing to its
      * notifications. Prefer [read] with a stable spec for normal resolution.
+     *
+     * An explicit [key] is tried first, with a [tag] fallback only when one is supplied.
+     * With neither, returns the newest cached instance of this type by creation order;
+     * reading an older instance does not change that order. Creation or recycling can change
+     * the next result. An unqualified lookup is supported without warnings. A single-result
+     * tag lookup warns in debug builds only when multiple instances match; use [readCachesByTag]
+     * when all matches are needed. Tags match by equality; warnings use tag object identity.
      */
     public inline fun <reified VM : ViewModel> readCached(
         key: Any? = null,
@@ -188,6 +208,7 @@ public open class ViewModelBinding {
 
     /**
      * Advanced lookup-only API that returns `null` on a miss. Prefer [watch] with a stable spec.
+     * Lookup order and debug ambiguity diagnostics are the same as [readCached].
      */
     public inline fun <reified VM : ViewModel> maybeWatchCached(
         key: Any? = null,
@@ -200,6 +221,7 @@ public open class ViewModelBinding {
 
     /**
      * Advanced lookup-only API that returns `null` on a miss. Prefer [read] with a stable spec.
+     * With no key or tag, returns the newest cached instance by creation order, without warnings.
      */
     public inline fun <reified VM : ViewModel> maybeReadCached(
         key: Any? = null,
@@ -255,9 +277,10 @@ public open class ViewModelBinding {
         addSubscription(vm) { it.listen(onChanged) }
     }
 
+    /** Observes real transitions; both callback values preserve [S]'s own nullability. */
     public fun <S, VM : StateViewModel<S>> listenState(
         factory: ViewModelFactory<VM>,
-        onChanged: (S?, S) -> Unit,
+        onChanged: (S, S) -> Unit,
     ) {
         assertMainThread()
         val vm = read(factory)
@@ -267,7 +290,7 @@ public open class ViewModelBinding {
     public fun <S, R, VM : StateViewModel<S>> listenStateSelect(
         factory: ViewModelFactory<VM>,
         selector: (S) -> R,
-        onChanged: (R?, R) -> Unit,
+        onChanged: (R, R) -> Unit,
     ) {
         listenStateSelect(
             factory = factory,
@@ -281,7 +304,7 @@ public open class ViewModelBinding {
         factory: ViewModelFactory<VM>,
         selector: (S) -> R,
         equals: ((R, R) -> Boolean)?,
-        onChanged: (R?, R) -> Unit,
+        onChanged: (R, R) -> Unit,
     ) {
         assertMainThread()
         val vm = read(factory)
@@ -292,6 +315,16 @@ public open class ViewModelBinding {
                 onChanged = onChanged,
             )
         }
+    }
+
+    /**
+     * Releases this binding's direct ownership and subscriptions. Other owner paths remain;
+     * the next [read] or [watch] establishes direct ownership again through normal resolution.
+     * New ownership on this binding is rejected while unbind cleanup is in progress.
+     */
+    public fun <VM : ViewModel> unbind(viewModel: VM) {
+        assertMainThread()
+        instanceController.unbind(viewModel)
     }
 
     public fun <VM : ViewModel> recycle(viewModel: VM) {
@@ -317,6 +350,7 @@ public open class ViewModelBinding {
             runCatching(disposer)
         }
         watchedViewModels.clear()
+        resolvedHandles.clear()
         subscriptions.toList().forEach(BindingSubscription::dispose)
         subscriptions.clear()
         disposes.toList().forEach { disposer ->
@@ -348,6 +382,9 @@ public open class ViewModelBinding {
                 "Cannot get ${factory.modelClass.qualifiedName}: binding is disposed.",
             )
         }
+        if (instanceController.isUnbinding) {
+            throw ViewModelError("Cannot resolve ViewModels while this binding is unbinding.")
+        }
         val configuredKey = factory.key()
         val aliveForever = factory.aliveForever()
         if (configuredKey == null && aliveForever) {
@@ -358,19 +395,39 @@ public open class ViewModelBinding {
             )
         }
         val key = configuredKey ?: defaultViewModelKey
-        val instanceFactory = InstanceFactory(
-            builder = factory::build,
-            arg = InstanceArg(
-                key = key,
-                tag = factory.tag(),
-                aliveForever = aliveForever,
-            ),
-        )
-        val vm = withBuilding(this) {
-            instanceController.getInstance(factory.modelClass, instanceFactory)
+        val modelClass = factory.modelClass
+        val identity = modelClass to key
+        val cached = resolvedHandles[identity]
+        val vm: VM
+        if (cached != null && ownsResolvedHandle(cached)) {
+            // The direct bind, ref and handle listener already exist. A read-to-watch
+            // upgrade still subscribes below, even when resolution hits this cache.
+            @Suppress("UNCHECKED_CAST")
+            vm = cached.requireInstance() as VM
+        } else {
+            val instanceFactory = InstanceFactory(
+                builder = factory::build,
+                arg = InstanceArg(
+                    key = key,
+                    tag = factory.tag(),
+                    aliveForever = aliveForever,
+                ),
+            )
+            val handle = withBuilding(this) {
+                instanceController.getHandle(modelClass, instanceFactory)
+            }
+            vm = handle.requireInstance()
+            resolvedHandles[identity] = handle
         }
         if (listen) addListener(vm)
         return vm
+    }
+
+    private fun ownsResolvedHandle(handle: InstanceHandle<*>): Boolean {
+        if (handle.isDisposed || handle.isRecycling || InstanceManager.isResetting) return false
+        if (!handle.containsDirectBinding(id)) return false
+        val vm = handle.value as? ViewModel ?: return false
+        return !vm.isDisposed && vm.refHandler.hasDirectRef(this)
     }
 
     @PublishedApi

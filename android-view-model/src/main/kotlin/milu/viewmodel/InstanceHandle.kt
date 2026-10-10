@@ -17,6 +17,9 @@ internal class InstanceHandle<Value : Any>(
     val isDisposed: Boolean
         get() = disposed
 
+    var isRecycling: Boolean = false
+        private set
+
     val bindingIds: List<String>
         get() = bindingSources.keys.toList()
 
@@ -30,6 +33,10 @@ internal class InstanceHandle<Value : Any>(
     )
 
     fun contains(bindingId: String): Boolean = bindingSources.containsKey(bindingId)
+
+    /** Direct ownership is independent of any parent-propagated source for the same id. */
+    fun containsDirectBinding(bindingId: String): Boolean =
+        directBindingSources.containsKey(bindingId)
 
     fun bind(id: String?) {
         if (id == null || disposed) return
@@ -85,6 +92,10 @@ internal class InstanceHandle<Value : Any>(
 
     private fun recycle(force: Boolean = false) {
         if (arg.aliveForever && !force) return
+        if (disposed || isRecycling) return
+        // Store removal and disposal callbacks run before value is cleared. A binding must
+        // not serve this generation from its resolution cache during those callbacks.
+        isRecycling = true
         runInViewModelUpdateTransaction(::notifyListeners)
         onDispose()
     }
