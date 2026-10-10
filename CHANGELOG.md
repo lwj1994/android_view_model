@@ -33,6 +33,25 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Deliver reentrant state transitions in FIFO order within one update
+  transaction, keeping selector values current and stopping queued callbacks
+  after disposal.
+- Coalesce external root refreshes only. Forward every dependency notification
+  so explicit business listeners reach the final value through diamond graphs.
+- Preserve generic type arguments throughout spec resolution, Store identity,
+  cached queries, and construction checks instead of mixing instances by raw
+  `KClass`. Require complete types for generic/non-static inner declarations,
+  and retain the raw-type checks' required metadata in R8 consumer rules.
+- Roll back constructor-registered cleanup and cancel the failed generation's
+  coroutine scope when construction fails before a handle exists.
+- Give shared pause providers independent subscriptions. External sources are
+  borrowed by default; `ownsProvider = true` explicitly transfers disposal
+  responsibility to the binding.
+- Publish local corrections made during remote-state delivery, freeze record
+  versions at state commit, and skip pending snapshots superseded by newer state.
+- Keep remote-state collection alive after comparator failures and preserve
+  coroutine cancellation. Route failures while creating an observation Flow
+  through the same error pipeline as failures from the Flow itself.
 - Release root owner paths propagated through a dependency edge when its parent
   binding unbinds the child, while preserving independent owner paths.
 - Defer parent update notifications until unbind detachment is complete so

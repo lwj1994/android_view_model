@@ -303,7 +303,7 @@ class AlignmentContractTest {
 
             viewModel.change(value = 1)
 
-            assertEquals(listOf(1 to 2, 0 to 1), observed)
+            assertEquals(listOf(0 to 1, 1 to 2), observed)
             assertEquals(1, viewModel.previousState?.value)
             assertEquals(2, viewModel.state.value)
         } finally {

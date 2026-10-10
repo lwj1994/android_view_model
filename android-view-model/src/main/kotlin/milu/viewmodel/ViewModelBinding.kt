@@ -4,6 +4,7 @@ import androidx.annotation.MainThread
 import java.util.IdentityHashMap
 import java.util.UUID
 import kotlin.reflect.KClass
+import kotlin.reflect.typeOf
 
 /**
  * ViewModel container that can be held by Activity, Fragment, View, Compose, or any plain class.
@@ -48,7 +49,7 @@ public open class ViewModelBinding {
     private val watchedViewModels = IdentityHashMap<ViewModel, () -> Unit>()
     // Only directly owned handles can skip resolution and ownership registration.
     // Spec objects, builders and constructor arguments do not participate in identity.
-    private val resolvedHandles = mutableMapOf<Pair<KClass<*>, Any>, InstanceHandle<*>>()
+    private val resolvedHandles = mutableMapOf<Pair<InstanceType<*>, Any>, InstanceHandle<*>>()
     private val disposes = mutableListOf<() -> Unit>()
     private val subscriptions = mutableListOf<BindingSubscription>()
     private val updateListeners = linkedMapOf<String, () -> Unit>()
@@ -181,7 +182,7 @@ public open class ViewModelBinding {
         key: Any? = null,
         tag: Any? = null,
     ): VM = requireExistingViewModel(
-        modelClass = VM::class,
+        type = InstanceType(VM::class, typeOf<VM>()),
         arg = InstanceArg(key = key, tag = tag),
         listen = true,
     )
@@ -201,7 +202,7 @@ public open class ViewModelBinding {
         key: Any? = null,
         tag: Any? = null,
     ): VM = requireExistingViewModel(
-        modelClass = VM::class,
+        type = InstanceType(VM::class, typeOf<VM>()),
         arg = InstanceArg(key = key, tag = tag),
         listen = false,
     )
@@ -237,16 +238,22 @@ public open class ViewModelBinding {
      * Prefer spec-based resolution for normal dependencies.
      */
     public inline fun <reified VM : ViewModel> watchCachesByTag(tag: Any): List<VM> {
-        return watchCachesByTag(VM::class, tag)
+        return watchCachesByTag(InstanceType(VM::class, typeOf<VM>()), tag)
     }
 
     @PublishedApi
     internal fun <VM : ViewModel> watchCachesByTag(
-        modelClass: kotlin.reflect.KClass<VM>,
+        modelClass: KClass<VM>,
+        tag: Any,
+    ): List<VM> = watchCachesByTag(InstanceType(modelClass), tag)
+
+    @PublishedApi
+    internal fun <VM : ViewModel> watchCachesByTag(
+        type: InstanceType<VM>,
         tag: Any,
     ): List<VM> {
         assertMainThread()
-        val vms = instanceController.getInstancesByTag(modelClass, tag)
+        val vms = instanceController.getInstancesByTag(type, tag)
         vms.forEach(::addListener)
         return vms
     }
@@ -256,16 +263,22 @@ public open class ViewModelBinding {
      * to ViewModel notifications. Prefer spec-based resolution for normal dependencies.
      */
     public inline fun <reified VM : ViewModel> readCachesByTag(tag: Any): List<VM> {
-        return readCachesByTag(VM::class, tag)
+        return readCachesByTag(InstanceType(VM::class, typeOf<VM>()), tag)
     }
 
     @PublishedApi
     internal fun <VM : ViewModel> readCachesByTag(
-        modelClass: kotlin.reflect.KClass<VM>,
+        modelClass: KClass<VM>,
+        tag: Any,
+    ): List<VM> = readCachesByTag(InstanceType(modelClass), tag)
+
+    @PublishedApi
+    internal fun <VM : ViewModel> readCachesByTag(
+        type: InstanceType<VM>,
         tag: Any,
     ): List<VM> {
         assertMainThread()
-        return instanceController.getInstancesByTag(modelClass, tag)
+        return instanceController.getInstancesByTag(type, tag)
     }
 
     public fun <VM : ViewModel> listen(
@@ -337,6 +350,15 @@ public open class ViewModelBinding {
         pauseController.addProvider(provider)
     }
 
+    /** Adds a pause source, optionally transferring its disposal to this binding. */
+    public fun addPauseProvider(
+        provider: ViewModelBindingPauseProvider,
+        ownsProvider: Boolean,
+    ) {
+        assertMainThread()
+        pauseController.addProvider(provider, ownsProvider)
+    }
+
     public fun removePauseProvider(provider: ViewModelBindingPauseProvider) {
         assertMainThread()
         pauseController.removeProvider(provider)
@@ -395,8 +417,8 @@ public open class ViewModelBinding {
             )
         }
         val key = configuredKey ?: defaultViewModelKey
-        val modelClass = factory.modelClass
-        val identity = modelClass to key
+        val type = factory.instanceType()
+        val identity = type to key
         val cached = resolvedHandles[identity]
         val vm: VM
         if (cached != null && ownsResolvedHandle(cached)) {
@@ -414,7 +436,7 @@ public open class ViewModelBinding {
                 ),
             )
             val handle = withBuilding(this) {
-                instanceController.getHandle(modelClass, instanceFactory)
+                instanceController.getHandle(type, instanceFactory)
             }
             vm = handle.requireInstance()
             resolvedHandles[identity] = handle
@@ -432,18 +454,25 @@ public open class ViewModelBinding {
 
     @PublishedApi
     internal fun <VM : ViewModel> requireExistingViewModel(
-        modelClass: kotlin.reflect.KClass<VM>,
+        modelClass: KClass<VM>,
+        arg: InstanceArg,
+        listen: Boolean,
+    ): VM = requireExistingViewModel(InstanceType(modelClass), arg, listen)
+
+    @PublishedApi
+    internal fun <VM : ViewModel> requireExistingViewModel(
+        type: InstanceType<VM>,
         arg: InstanceArg,
         listen: Boolean,
     ): VM {
         assertMainThread()
         if (isDisposed) {
             throw ViewModelError(
-                "Cannot get ${modelClass.qualifiedName}: binding is disposed.",
+                "Cannot get ${type.description}: binding is disposed.",
             )
         }
         val vm = instanceController.getInstance(
-            modelClass,
+            type,
             InstanceFactory(arg = arg),
         )
         if (listen) addListener(vm)
@@ -460,7 +489,7 @@ public open class ViewModelBinding {
                 viewModelLog { "${this::class.qualifiedName} paused, delay update" }
                 return@listen
             }
-            if (markViewModelBindingUpdated(this)) {
+            if (isDependencyBinding || markViewModelBindingUpdated(this)) {
                 onViewModelUpdate(vm)
             }
         }

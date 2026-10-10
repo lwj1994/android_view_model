@@ -126,6 +126,45 @@ class ComposeBindingsTest {
     }
 
     @Test
+    fun selectViewModelState_withStableSelectorRendersLatestReentrantState() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val binding = ViewModelBinding()
+        val spec = viewModelSpec { ComposeStateViewModel() }
+        val viewModel by binding.readViewModel(spec)
+        // Reuse the same function across recompositions so remember cannot hide a stale callback.
+        val selector: (ComposeState) -> Int = { it.count }
+        try {
+            binding.listenState(spec) { _, current ->
+                if (current.count == 1) viewModel.change(count = 2)
+            }
+            withTestComposition {
+                var rendered = -1
+                var recompositions = 0
+                setContent {
+                    recompositions += 1
+                    rendered = selectViewModelState(
+                        factory = spec,
+                        selector = selector,
+                        binding = binding,
+                    )
+                }
+                awaitIdle()
+                assertEquals(0, rendered)
+
+                viewModel.change(count = 1)
+                awaitIdle()
+
+                assertEquals(2, viewModel.state.count)
+                assertEquals(2, rendered)
+                assertEquals(2, recompositions)
+            }
+        } finally {
+            binding.dispose()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun delegates_callbacksResolveBeforeRecomposition_andKeepNotificationSemantics() = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {

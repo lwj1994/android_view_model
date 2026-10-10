@@ -78,11 +78,12 @@ internal class ViewModelDependencyBinding(
         if (
             dependencyDisposed ||
             parent.isDisposed ||
-            InstanceManager.isResetting ||
-            !markViewModelBindingUpdated(this)
+            InstanceManager.isResetting
         ) {
             return
         }
+        // A detached dependency can change a value observed by business listeners.
+        // Preserve every parent notification; only external root refreshes coalesce.
         parent.notifyListeners()
     }
 

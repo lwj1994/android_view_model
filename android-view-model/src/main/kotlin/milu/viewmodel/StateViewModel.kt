@@ -1,7 +1,10 @@
 package milu.viewmodel
 
 import androidx.annotation.MainThread
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,11 +31,12 @@ public open class StateViewModel<State>(
     public val initialState: State = initialState
 
     private val stateListeners = linkedMapOf<String, (State, State) -> Unit>()
+    private val pendingStateTransitions = ArrayDeque<StateTransition<State>>()
+    private var isDispatchingStateTransitions = false
     private val processStateSourceId = UUID.randomUUID().toString()
     private val processStateWriteMutex = Mutex()
     private var processStateVersion: Long = 0
     private var processStateOwnerId: String = ""
-    private var isApplyingProcessState: Boolean = false
 
     init {
         startProcessStateSync()
@@ -80,38 +84,78 @@ public open class StateViewModel<State>(
     }
 
     public fun setState(newState: State) {
+        setStateInternal(newState, publishToProcessStore = true)
+    }
+
+    private fun setStateInternal(
+        newState: State,
+        publishToProcessStore: Boolean,
+    ) {
         assertMainThread()
         if (isDisposed) {
             viewModelLog { "${this::class.qualifiedName}: setState after disposed" }
             return
         }
-        val transition = StateTransition(previous = state, current = newState)
+        val previous = state
         val isSame = try {
-            isSameState(transition.previous, transition.current)
+            isSameState(previous, newState)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             reportViewModelError(error, ErrorType.Listener, "${this::class.qualifiedName} setState error")
             return
         }
         if (isSame) return
-        previousState = transition.previous
+        previousState = previous
         state = newState
-
-        val snapshot = stateListeners.toList()
-        snapshot.forEach { (id, listener) ->
-            if (stateListeners[id] !== listener) return@forEach
-            try {
-                listener(transition.previous, transition.current)
-            } catch (error: Throwable) {
-                reportViewModelError(error, ErrorType.Listener, "state listener error")
-            }
+        // Capture origin and version when the state is committed. A listener can accept a newer
+        // remote record or create another local transition before this event finishes dispatching.
+        val processRecord = if (publishToProcessStore) {
+            createLocalProcessStateRecord(newState)
+        } else {
+            null
         }
-        notifyListeners()
-        publishProcessState(state)
+        pendingStateTransitions.addLast(StateTransition(previous, newState, processRecord))
+        dispatchStateTransitions()
+    }
+
+    private fun dispatchStateTransitions() {
+        if (isDispatchingStateTransitions) return
+        isDispatchingStateTransitions = true
+        try {
+            // Reentrant events reach every remaining listener in transition order. Share one
+            // transaction for the complete drain so root refreshes coalesce without losing events.
+            runInViewModelUpdateTransaction {
+                while (pendingStateTransitions.isNotEmpty() && !isDisposed) {
+                    val transition = pendingStateTransitions.removeFirst()
+                    val snapshot = stateListeners.toList()
+                    for ((id, listener) in snapshot) {
+                        if (isDisposed) break
+                        if (stateListeners[id] !== listener) continue
+                        try {
+                            listener(transition.previous, transition.current)
+                        } catch (error: Throwable) {
+                            reportViewModelError(error, ErrorType.Listener, "state listener error")
+                        }
+                    }
+                    if (!isDisposed) {
+                        notifyListeners()
+                    }
+                    if (!isDisposed) {
+                        transition.processRecord?.let(::publishProcessState)
+                    }
+                }
+            }
+        } finally {
+            isDispatchingStateTransitions = false
+            pendingStateTransitions.clear()
+        }
     }
 
     override fun onDispose(arg: InstanceArg) {
         assertMainThread()
         stateListeners.clear()
+        pendingStateTransitions.clear()
         super.onDispose(arg)
     }
 
@@ -127,8 +171,12 @@ public open class StateViewModel<State>(
     private fun startProcessStateSync() {
         val store = processStateStore ?: return
         viewModelScope.launch {
-            store.observe()
+            flow {
+                // Obtaining the Flow can fail before collection starts, too.
+                emitAll(store.observe())
+            }
                 .catch { error ->
+                    if (error is CancellationException) throw error
                     reportViewModelError(error, ErrorType.Listener, "process state observe error")
                 }
                 .collect { record ->
@@ -142,13 +190,9 @@ public open class StateViewModel<State>(
         if (!shouldAcceptProcessState(record)) return
         processStateVersion = record.version
         processStateOwnerId = record.sourceId
-        if (isSameState(state, record.state)) return
-        isApplyingProcessState = true
-        try {
-            setState(record.state)
-        } finally {
-            isApplyingProcessState = false
-        }
+        // Compare once through the same guarded path as local changes. Comparator failures are
+        // reported for this record without terminating observation of later remote records.
+        setStateInternal(record.state, publishToProcessStore = false)
     }
 
     private fun shouldAcceptProcessState(record: ProcessStateRecord<State>): Boolean {
@@ -160,21 +204,31 @@ public open class StateViewModel<State>(
         return true
     }
 
-    private fun publishProcessState(newState: State) {
-        val store = processStateStore ?: return
-        if (isApplyingProcessState) return
-
+    private fun createLocalProcessStateRecord(newState: State): ProcessStateRecord<State>? {
+        if (processStateStore == null) return null
         processStateVersion += 1
         processStateOwnerId = processStateSourceId
-        val record = ProcessStateRecord(
+        return ProcessStateRecord(
             state = newState,
             version = processStateVersion,
             sourceId = processStateSourceId,
         )
+    }
+
+    private fun publishProcessState(record: ProcessStateRecord<State>) {
+        val store = processStateStore ?: return
         viewModelScope.launch {
             processStateWriteMutex.withLock {
+                // This boundary publishes snapshots: local transitions still reach all business
+                // listeners, but an unsent snapshot superseded by any accepted state is skipped.
+                // Check after taking the mutex because the record may age while another write runs.
+                if (record.version != processStateVersion || record.sourceId != processStateOwnerId) {
+                    return@withLock
+                }
                 try {
                     store.write(record)
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (error: Throwable) {
                     reportViewModelError(error, ErrorType.Lifecycle, "process state write error")
                 }
@@ -186,4 +240,5 @@ public open class StateViewModel<State>(
 private data class StateTransition<State>(
     val previous: State,
     val current: State,
+    val processRecord: ProcessStateRecord<State>?,
 )

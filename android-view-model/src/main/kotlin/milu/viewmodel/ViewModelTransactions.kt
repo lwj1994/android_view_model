@@ -2,7 +2,6 @@ package milu.viewmodel
 
 import java.util.Collections
 import java.util.IdentityHashMap
-import kotlin.reflect.KClass
 
 /** Parent/binding-private key used for the default unkeyed identity. */
 internal class ViewModelPrivateKey
@@ -11,12 +10,12 @@ internal fun <T : Any> identitySet(): MutableSet<T> =
     Collections.newSetFromMap(IdentityHashMap())
 
 private data class ConstructionIdentity(
-    val type: KClass<*>,
+    val type: InstanceType<*>,
     val key: Any,
     val implicit: Boolean,
 ) {
     val description: String
-        get() = if (implicit) "${type.simpleName}(unkeyed)" else "${type.simpleName}($key)"
+        get() = if (implicit) "${type.description}(unkeyed)" else "${type.description}($key)"
 }
 
 private class ConstructionTransaction {
@@ -51,7 +50,7 @@ internal fun registerViewModelConstructionRollback(rollback: () -> Unit) {
 }
 
 internal fun <R> runInViewModelConstruction(
-    type: KClass<*>,
+    type: InstanceType<*>,
     key: Any,
     isImplicit: Boolean,
     block: () -> R,

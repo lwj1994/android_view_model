@@ -14,6 +14,14 @@ public interface ProcessStateStore<State> {
     /** Returns a point-in-time snapshot. Prefer [observe] when synchronizing a ViewModel. */
     public suspend fun read(): ProcessStateRecord<State>?
 
+    /**
+     * Submits a versioned snapshot. Implementations must atomically reject records older than
+     * the stored `(version, sourceId)` pair, comparing source IDs lexicographically on a tie.
+     * A rejected writer must still be able to observe the winning record through [observe].
+     *
+     * [StateViewModel] can skip pending snapshots superseded before this call starts. Once a
+     * write is in flight, the store remains responsible for rejecting a stale record.
+     */
     public suspend fun write(record: ProcessStateRecord<State>)
 
     /**

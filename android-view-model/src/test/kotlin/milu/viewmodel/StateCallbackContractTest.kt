@@ -189,7 +189,7 @@ class StateCallbackContractTest {
     }
 
     @Test
-    fun reentrantStateChanges_keepStateAndSelectorPairsInSynchronousDispatchOrder() {
+    fun reentrantStateChanges_keepStateAndSelectorPairsInTransitionOrder() {
         val binding = ViewModelBinding()
         try {
             val spec = viewModelSpec { StateViewModel(0) }
@@ -209,10 +209,10 @@ class StateCallbackContractTest {
 
             assertEquals(
                 listOf(
-                    "state: 1 -> 2",
-                    "selected: 10 -> 20",
                     "state: 0 -> 1",
                     "selected: 0 -> 10",
+                    "state: 1 -> 2",
+                    "selected: 10 -> 20",
                 ),
                 calls,
             )

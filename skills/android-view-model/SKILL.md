@@ -95,6 +95,12 @@ A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
   Do not include the spec object, builder, constructor arguments, builder's
   runtime result, or `tag` in identity. Different unkeyed specs or arguments
   of the same type reuse one instance within a binding; later builders do not run.
+- Preserve generic type arguments and their nullability in that resolved type.
+  Use the reified spec helpers and typed cached APIs for generic ViewModels.
+  Keep non-generic top-level and static nested `KClass` factories compatible.
+  Require a reified spec, a `KType` constructor, or `TypedViewModelFactory` for
+  generic and non-static inner classes instead of accepting erased declarations.
+  Preserve the raw-type checks' required class metadata in consumer R8 rules.
 - With no explicit key, one binding reuses one instance per resolved ViewModel
   type and remains isolated from other bindings.
 - Use a key for intentional cross-binding sharing or multiple instances of the
@@ -214,6 +220,11 @@ different processes and needs to synchronize `StateViewModel` snapshots:
   ordering and prevent remote updates from echoing back as local writes. The
   IPC authority must reject older records and notify clients even when a
   concurrent candidate loses, so that loser observes the winner.
+- Preserve new local corrections made by listeners during remote-state delivery.
+  Freeze a local record's version at state commit; skip pending snapshots that
+  a newer accepted state supersedes, while delivering all business state events.
+  Report comparator failures without terminating collection, and propagate
+  coroutine cancellation.
 - This synchronizes state, not ViewModel identity, lifecycle, commands,
   listeners, or coroutine jobs. Use Binder/AIDL command APIs separately when
   remote method invocation is the actual requirement.
@@ -403,8 +414,9 @@ class CheckoutViewModel : ViewModel() {
   the parent's lifetime, and mirrors current root owners in real time.
 - Ownership is source-aware. Direct and multiple parent paths sharing one
   visible binding id are released independently.
-- Synchronous propagation is transaction-based; each binding updates at most
-  once even in a diamond graph.
+- Coalesce only external root refresh requests within a synchronous transaction.
+  Forward every dependency notification so business listeners receive the final
+  derived value after both paths of a diamond update.
 
 ## Lifecycle controls and safety
 
@@ -434,7 +446,14 @@ class CheckoutViewModel : ViewModel() {
   The complete sequence is reentrancy-guarded so nested reset attempts from
   teardown cannot clear the active error/lifecycle pipeline early.
 - Recursive construction and runtime ownership cycles throw `ViewModelError`.
-  A failed build rolls back children created by its dependency scope.
+  Roll back a failed build's children, registered `addDispose` resources, and
+  coroutine scope exactly once. Do not call a partially initialized subclass's
+  teardown hook; register already-initialized base resources separately.
+
+- Treat `addPauseProvider(source)` as a borrowed subscription. Shared pause
+  sources must keep independent listeners; removing one binding must not stop
+  another. Use `addPauseProvider(source, ownsProvider = true)` only when that
+  binding owns the source's lifetime. Built-in host providers are owned.
 
 Lifecycle hooks are `onCreate`, `onBind`, `onUnbind`, and `onDispose`. Register
 owned resources with `addDispose` and let the framework invoke cleanup.
@@ -463,9 +482,10 @@ owned resources with `addDispose` and let the framework invoke cleanup.
   `(R, R) -> Unit`. Emit no initial callback. Preserve nullable values only when
   the state or selected type itself is nullable; do not add `?` solely because
   a parameter represents the previous value.
-- A state transition freezes its previous/current pair before listener dispatch;
-  a reentrant synchronous `setState` does not corrupt the pair delivered to
-  later listeners.
+- Commit state immediately and freeze its previous/current pair. Deliver state
+  events in FIFO order, including reentrant `setState` calls, with the whole
+  drain in one update transaction. Stop remaining and queued events on disposal;
+  `vm.state` can already be newer than a callback's frozen event.
 - For selector-level observation, use a read-style resolution and let the
   selector/listener own updates instead of also adding a broad `watch`.
 

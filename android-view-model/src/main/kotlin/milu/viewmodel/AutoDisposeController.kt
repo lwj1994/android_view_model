@@ -10,6 +10,12 @@ public class AutoDisposeController {
     private val blocks = mutableListOf<() -> Unit>()
     private var disposed = false
 
+    init {
+        // A constructor can fail before the ViewModel receives its lifecycle handle.
+        // Release already registered resources without invoking a partial subclass.
+        registerViewModelConstructionRollback(::dispose)
+    }
+
     public fun addDispose(block: () -> Unit) {
         assertMainThread()
         if (disposed) {

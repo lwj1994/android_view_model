@@ -20,6 +20,17 @@ Every functional unit can be a ViewModel: UI state, repositories, services, coor
 
 Instance identity is the resolved ViewModel type plus its effective key. An unkeyed spec uses a private key owned by the current binding, so repeated resolution of the same type reuses one instance inside that binding while different bindings remain isolated. Use explicit keys for cross-binding sharing or multiple instances of the same type in one binding.
 
+The resolved type includes generic arguments and their nullability. For example,
+`StateViewModel<Int>` and `StateViewModel<String>` use separate identities even
+with an equal key. Reified spec helpers and cached queries preserve the complete
+type. Existing non-generic top-level and static nested `KClass` factory
+declarations remain supported. Generic classes and non-static inner classes need
+a complete type and reject raw `KClass` declarations instead of risking an
+instance with the wrong state type. Use a reified spec helper, a `KType` spec
+constructor, or `TypedViewModelFactory` with `typeOf<VM>()`; reified helpers also
+support inner classes. The library includes consumer rules for the class metadata
+used by the raw-type checks in optimized Android builds.
+
 The spec object, builder, and constructor arguments do not participate in identity.
 Two different unkeyed specs of the same type resolve the same instance within one
 binding; the later builder does not run. Calling an unkeyed argument spec with
@@ -525,6 +536,12 @@ data class ProcessCounterState(
   gap.
 - Records carry `version` and `sourceId` so concurrent writers can reject older
   snapshots and avoid echoing an applied remote state.
+- A local correction made by a listener while applying a remote state is a new
+  local transition and is published. Local records capture their version when
+  state changes commit; pending snapshots superseded by a newer accepted state
+  may be coalesced, while business state listeners still receive every transition.
+- A failing state comparator reports through `ViewModel.config.onError` without
+  ending the remote-state collector. Coroutine cancellation still propagates.
 - Parcelable is an IPC transport format, not a durable disk schema. If state
   must survive termination of the state-store process, persist it separately
   with an explicitly versioned format.
@@ -628,8 +645,11 @@ forward child notifications through the parent, ultimately refreshing bindings
 that watch the parent. Removing the dependency-update hook does not make
 `read` and `watch` equivalent: their ownership is the same, but only `watch`
 subscribes to the child's own notifications. Both still observe handle disposal.
-Synchronous propagation is transaction-based, so diamond dependency graphs
-update each binding at most once.
+Synchronous propagation is transaction-based. Only external root binding
+refresh requests are coalesced; dependency bindings forward every notification.
+Explicit business listeners can observe intermediate values and the final value
+as both branches of a diamond update. Use those listeners for business work;
+root `onUpdate` requests a refresh at the first event in the transaction.
 
 There is no `onDependencyNotify` override hook. For business reactions, register
 binding `listen`, `listenState`, or `listenStateSelect` once during
@@ -679,7 +699,24 @@ There is no in-place instance replacement API. To obtain an independent instance
 
 After `recycle`, access ViewModels through `by`-delegated properties; a stored reference keeps pointing at the disposed object.
 
-Construction and dependency graphs are checked. Recursive construction and runtime ownership cycles throw `ViewModelError`; a failed build rolls back children created by that dependency scope.
+Construction and dependency graphs are checked. Recursive construction and runtime
+ownership cycles throw `ViewModelError`. A failed build rolls back children created
+by that dependency scope, runs resources registered with `addDispose` exactly once,
+and cancels the failed generation's `viewModelScope`. Successful construction keeps
+these resources until normal disposal. Rollback does not invoke a partially
+initialized subclass's teardown hook.
+
+### Pause sources
+
+Pause sources combine with OR: updates pause while any source is paused, then one
+catch-up refresh runs when all sources resume. A source can be shared by multiple
+bindings; each binding owns an independent subscription.
+
+`binding.addPauseProvider(source)` borrows the source. Removing it or disposing the
+binding only removes that binding's subscription; the source's owner disposes it
+when no longer needed. Use `addPauseProvider(source, ownsProvider = true)` when the
+binding also owns the source's lifetime. Built-in Android host bindings own the
+lifecycle providers they create and remove them when the corresponding owner ends.
 
 ## State and fine-grained observation
 
@@ -691,7 +728,12 @@ Construction and dependency graphs are checked. Recursive construction and runti
   values. Listeners run only for actual transitions, with no initial callback.
   A previous value is nullable only when `T` or `R` itself is nullable; nullable
   state and nullable selector results remain supported.
-- Each `setState` captures an immutable previous/current transition before dispatch; nested synchronous state changes cannot rewrite the pair seen by later listeners.
+- Each `setState` commits state immediately and captures an immutable
+  previous/current transition. Events are delivered in FIFO order: a reentrant
+  state change waits until the current event reaches the remaining listeners.
+  The entire synchronous drain shares one update transaction. Disposing the VM
+  stops remaining and queued callbacks. Because state commits immediately,
+  `vm.state` may already be newer than the event a listener is processing.
 - For selector-level UI observation, obtain the ViewModel with a read-style API and let the selector own updates; do not add a broad `watch` subscription to the same instance.
 
 ## Spec overrides

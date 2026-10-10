@@ -7,9 +7,9 @@ import kotlin.reflect.KClass
 
 @MainThread
 public object InstanceManager {
-    private val stores = linkedMapOf<KClass<*>, Store<*>>()
+    private val stores = linkedMapOf<InstanceType<*>, Store<*>>()
     private val ambiguousTagLookupWarnings =
-        mutableMapOf<KClass<*>, IdentityHashMap<Any, Boolean>>()
+        mutableMapOf<InstanceType<*>, IdentityHashMap<Any, Boolean>>()
     internal var isResetting: Boolean = false
         private set
 
@@ -19,10 +19,15 @@ public object InstanceManager {
     internal fun <Value : Any> get(
         type: KClass<Value>,
         factory: InstanceFactory<Value>? = null,
+    ): Value = get(InstanceType(type), factory)
+
+    internal fun <Value : Any> get(
+        type: InstanceType<Value>,
+        factory: InstanceFactory<Value>? = null,
     ): Value = getHandle(type, factory).requireInstance()
 
     internal fun <Value : Any> maybeGet(
-        type: KClass<Value>,
+        type: InstanceType<Value>,
         factory: InstanceFactory<Value>? = null,
     ): Value? = try {
         get(type, factory)
@@ -31,7 +36,7 @@ public object InstanceManager {
     }
 
     internal fun <Value : Any> getHandle(
-        type: KClass<Value>,
+        type: InstanceType<Value>,
         factory: InstanceFactory<Value>? = null,
     ): InstanceHandle<Value> {
         assertMainThread()
@@ -39,7 +44,7 @@ public object InstanceManager {
         val store = store(type)
         if (factory == null || factory.isEmpty) {
             val found = store.findNewest(tag = factory?.arg?.tag)
-                ?: throw ViewModelError("no ${type.qualifiedName} instance found")
+                ?: throw ViewModelError("no ${type.description} instance found")
             if (BuildConfig.DEBUG && factory?.arg?.tag != null) {
                 warnAmbiguousTagLookup(type, store, factory.arg.tag)
             }
@@ -62,7 +67,7 @@ public object InstanceManager {
                 store.getHandle(factory)
             } catch (_: ViewModelError) {
                 val found = store.findNewest(tag = factory.arg.tag)
-                    ?: throw ViewModelError("no ${type.qualifiedName} instance found")
+                    ?: throw ViewModelError("no ${type.description} instance found")
                 if (BuildConfig.DEBUG) {
                     warnAmbiguousTagLookup(type, store, factory.arg.tag)
                 }
@@ -87,7 +92,7 @@ public object InstanceManager {
 
     internal fun <Value : Any> getHandlesByTag(
         tag: Any,
-        type: KClass<Value>,
+        type: InstanceType<Value>,
     ): List<InstanceHandle<Value>> {
         requireNotResetting()
         return store(type).instancesByTag(tag)
@@ -123,7 +128,7 @@ public object InstanceManager {
     }
 
     private fun <Value : Any> warnAmbiguousTagLookup(
-        type: KClass<Value>,
+        type: InstanceType<Value>,
         store: Store<Value>,
         tag: Any,
     ) {
@@ -141,7 +146,7 @@ public object InstanceManager {
         try {
             Log.w(
                 "AndroidViewModel",
-                "A single-result cached lookup of ${type.qualifiedName} by tag " +
+                "A single-result cached lookup of ${type.description} by tag " +
                     "$tagDescription matched $matches instances and returned the " +
                     "most recently created one. Use readCachesByTag/watchCachesByTag " +
                     "for a shared tag, or an explicit key for one instance.",
@@ -153,7 +158,7 @@ public object InstanceManager {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun <Value : Any> store(type: KClass<Value>): Store<Value> {
+    private fun <Value : Any> store(type: InstanceType<Value>): Store<Value> {
         val cached = stores[type]
         if (cached != null) return cached as Store<Value>
 

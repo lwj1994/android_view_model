@@ -2,6 +2,8 @@ package milu.viewmodel
 
 import androidx.annotation.MainThread
 import kotlin.reflect.KClass
+import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 
 /**
  * Zero-argument ViewModel registration. Keep specs stable (normally at module/file scope) and
@@ -12,13 +14,37 @@ import kotlin.reflect.KClass
  * [aliveForever] is true.
  */
 @MainThread
-public class ViewModelSpec<VM : ViewModel>(
-    override val modelClass: KClass<VM>,
+public class ViewModelSpec<VM : ViewModel> internal constructor(
+    internal val instanceType: InstanceType<VM>,
     private val key: Any? = null,
     private val tag: Any? = null,
     private val aliveForever: Boolean = false,
     private val builder: () -> VM,
-) : ViewModelFactory<VM> {
+) : TypedViewModelFactory<VM> {
+    /** Compatibility constructor for a non-generic top-level or static nested ViewModel class. */
+    public constructor(
+        modelClass: KClass<VM>,
+        key: Any? = null,
+        tag: Any? = null,
+        aliveForever: Boolean = false,
+        builder: () -> VM,
+    ) : this(InstanceType(modelClass), key, tag, aliveForever, builder)
+
+    /** Declares a ViewModel type with all generic arguments, normally captured by [viewModelSpec]. */
+    public constructor(
+        modelType: KType,
+        key: Any? = null,
+        tag: Any? = null,
+        aliveForever: Boolean = false,
+        builder: () -> VM,
+    ) : this(instanceTypeOf(modelType), key, tag, aliveForever, builder)
+
+    override val modelClass: KClass<VM>
+        get() = instanceType.modelClass
+
+    override val modelType: KType?
+        get() = instanceType.kotlinType
+
     private val proxyState = ViewModelSpecProxyState<ViewModelSpec<VM>>()
 
     public fun setProxy(spec: ViewModelSpec<VM>) {
@@ -77,7 +103,7 @@ public inline fun <reified VM : ViewModel> viewModelSpec(
     aliveForever: Boolean = false,
     noinline builder: () -> VM,
 ): ViewModelSpec<VM> = ViewModelSpec(
-    modelClass = VM::class,
+    modelType = typeOf<VM>(),
     key = key,
     tag = tag,
     aliveForever = aliveForever,
@@ -85,13 +111,31 @@ public inline fun <reified VM : ViewModel> viewModelSpec(
 )
 
 @MainThread
-public class ViewModelSpecWithArg<VM : ViewModel, A>(
-    private val modelClass: KClass<VM>,
+public class ViewModelSpecWithArg<VM : ViewModel, A> internal constructor(
+    private val instanceType: InstanceType<VM>,
     private val builder: (A) -> VM,
     private val key: ((A) -> Any?)? = null,
     private val tag: ((A) -> Any?)? = null,
     private val aliveForever: ((A) -> Boolean)? = null,
 ) {
+    /** Compatibility constructor for a non-generic top-level or static nested ViewModel class. */
+    public constructor(
+        modelClass: KClass<VM>,
+        builder: (A) -> VM,
+        key: ((A) -> Any?)? = null,
+        tag: ((A) -> Any?)? = null,
+        aliveForever: ((A) -> Boolean)? = null,
+    ) : this(InstanceType(modelClass), builder, key, tag, aliveForever)
+
+    /** Preserves the declared ViewModel's generic arguments across argument resolution. */
+    public constructor(
+        modelType: KType,
+        builder: (A) -> VM,
+        key: ((A) -> Any?)? = null,
+        tag: ((A) -> Any?)? = null,
+        aliveForever: ((A) -> Boolean)? = null,
+    ) : this(instanceTypeOf(modelType), builder, key, tag, aliveForever)
+
     private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg<VM, A>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg<VM, A>) {
@@ -118,7 +162,7 @@ public class ViewModelSpecWithArg<VM : ViewModel, A>(
         assertMainThread()
         val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
-            modelClass = active.modelClass,
+            instanceType = active.instanceType,
             key = active.key?.invoke(arg),
             tag = active.tag?.invoke(arg),
             aliveForever = active.aliveForever?.invoke(arg) ?: false,
@@ -133,7 +177,7 @@ public inline fun <reified VM : ViewModel, A> viewModelSpecWithArg(
     noinline tag: ((A) -> Any?)? = null,
     noinline aliveForever: ((A) -> Boolean)? = null,
 ): ViewModelSpecWithArg<VM, A> = ViewModelSpecWithArg(
-    modelClass = VM::class,
+    modelType = typeOf<VM>(),
     builder = builder,
     key = key,
     tag = tag,
@@ -141,13 +185,31 @@ public inline fun <reified VM : ViewModel, A> viewModelSpecWithArg(
 )
 
 @MainThread
-public class ViewModelSpecWithArg2<VM : ViewModel, A, B>(
-    private val modelClass: KClass<VM>,
+public class ViewModelSpecWithArg2<VM : ViewModel, A, B> internal constructor(
+    private val instanceType: InstanceType<VM>,
     private val builder: (A, B) -> VM,
     private val key: ((A, B) -> Any?)? = null,
     private val tag: ((A, B) -> Any?)? = null,
     private val aliveForever: ((A, B) -> Boolean)? = null,
 ) {
+    /** Compatibility constructor for a non-generic top-level or static nested ViewModel class. */
+    public constructor(
+        modelClass: KClass<VM>,
+        builder: (A, B) -> VM,
+        key: ((A, B) -> Any?)? = null,
+        tag: ((A, B) -> Any?)? = null,
+        aliveForever: ((A, B) -> Boolean)? = null,
+    ) : this(InstanceType(modelClass), builder, key, tag, aliveForever)
+
+    /** Preserves the declared ViewModel's generic arguments across argument resolution. */
+    public constructor(
+        modelType: KType,
+        builder: (A, B) -> VM,
+        key: ((A, B) -> Any?)? = null,
+        tag: ((A, B) -> Any?)? = null,
+        aliveForever: ((A, B) -> Boolean)? = null,
+    ) : this(instanceTypeOf(modelType), builder, key, tag, aliveForever)
+
     private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg2<VM, A, B>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg2<VM, A, B>) {
@@ -177,7 +239,7 @@ public class ViewModelSpecWithArg2<VM : ViewModel, A, B>(
         assertMainThread()
         val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
-            modelClass = active.modelClass,
+            instanceType = active.instanceType,
             key = active.key?.invoke(arg1, arg2),
             tag = active.tag?.invoke(arg1, arg2),
             aliveForever = active.aliveForever?.invoke(arg1, arg2) ?: false,
@@ -192,7 +254,7 @@ public inline fun <reified VM : ViewModel, A, B> viewModelSpecWithArg2(
     noinline tag: ((A, B) -> Any?)? = null,
     noinline aliveForever: ((A, B) -> Boolean)? = null,
 ): ViewModelSpecWithArg2<VM, A, B> = ViewModelSpecWithArg2(
-    modelClass = VM::class,
+    modelType = typeOf<VM>(),
     builder = builder,
     key = key,
     tag = tag,
@@ -200,13 +262,31 @@ public inline fun <reified VM : ViewModel, A, B> viewModelSpecWithArg2(
 )
 
 @MainThread
-public class ViewModelSpecWithArg3<VM : ViewModel, A, B, C>(
-    private val modelClass: KClass<VM>,
+public class ViewModelSpecWithArg3<VM : ViewModel, A, B, C> internal constructor(
+    private val instanceType: InstanceType<VM>,
     private val builder: (A, B, C) -> VM,
     private val key: ((A, B, C) -> Any?)? = null,
     private val tag: ((A, B, C) -> Any?)? = null,
     private val aliveForever: ((A, B, C) -> Boolean)? = null,
 ) {
+    /** Compatibility constructor for a non-generic top-level or static nested ViewModel class. */
+    public constructor(
+        modelClass: KClass<VM>,
+        builder: (A, B, C) -> VM,
+        key: ((A, B, C) -> Any?)? = null,
+        tag: ((A, B, C) -> Any?)? = null,
+        aliveForever: ((A, B, C) -> Boolean)? = null,
+    ) : this(InstanceType(modelClass), builder, key, tag, aliveForever)
+
+    /** Preserves the declared ViewModel's generic arguments across argument resolution. */
+    public constructor(
+        modelType: KType,
+        builder: (A, B, C) -> VM,
+        key: ((A, B, C) -> Any?)? = null,
+        tag: ((A, B, C) -> Any?)? = null,
+        aliveForever: ((A, B, C) -> Boolean)? = null,
+    ) : this(instanceTypeOf(modelType), builder, key, tag, aliveForever)
+
     private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg3<VM, A, B, C>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg3<VM, A, B, C>) {
@@ -237,7 +317,7 @@ public class ViewModelSpecWithArg3<VM : ViewModel, A, B, C>(
         assertMainThread()
         val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
-            modelClass = active.modelClass,
+            instanceType = active.instanceType,
             key = active.key?.invoke(arg1, arg2, arg3),
             tag = active.tag?.invoke(arg1, arg2, arg3),
             aliveForever = active.aliveForever?.invoke(arg1, arg2, arg3) ?: false,
@@ -252,7 +332,7 @@ public inline fun <reified VM : ViewModel, A, B, C> viewModelSpecWithArg3(
     noinline tag: ((A, B, C) -> Any?)? = null,
     noinline aliveForever: ((A, B, C) -> Boolean)? = null,
 ): ViewModelSpecWithArg3<VM, A, B, C> = ViewModelSpecWithArg3(
-    modelClass = VM::class,
+    modelType = typeOf<VM>(),
     builder = builder,
     key = key,
     tag = tag,
@@ -260,13 +340,31 @@ public inline fun <reified VM : ViewModel, A, B, C> viewModelSpecWithArg3(
 )
 
 @MainThread
-public class ViewModelSpecWithArg4<VM : ViewModel, A, B, C, D>(
-    private val modelClass: KClass<VM>,
+public class ViewModelSpecWithArg4<VM : ViewModel, A, B, C, D> internal constructor(
+    private val instanceType: InstanceType<VM>,
     private val builder: (A, B, C, D) -> VM,
     private val key: ((A, B, C, D) -> Any?)? = null,
     private val tag: ((A, B, C, D) -> Any?)? = null,
     private val aliveForever: ((A, B, C, D) -> Boolean)? = null,
 ) {
+    /** Compatibility constructor for a non-generic top-level or static nested ViewModel class. */
+    public constructor(
+        modelClass: KClass<VM>,
+        builder: (A, B, C, D) -> VM,
+        key: ((A, B, C, D) -> Any?)? = null,
+        tag: ((A, B, C, D) -> Any?)? = null,
+        aliveForever: ((A, B, C, D) -> Boolean)? = null,
+    ) : this(InstanceType(modelClass), builder, key, tag, aliveForever)
+
+    /** Preserves the declared ViewModel's generic arguments across argument resolution. */
+    public constructor(
+        modelType: KType,
+        builder: (A, B, C, D) -> VM,
+        key: ((A, B, C, D) -> Any?)? = null,
+        tag: ((A, B, C, D) -> Any?)? = null,
+        aliveForever: ((A, B, C, D) -> Boolean)? = null,
+    ) : this(instanceTypeOf(modelType), builder, key, tag, aliveForever)
+
     private val proxyState = ViewModelSpecProxyState<ViewModelSpecWithArg4<VM, A, B, C, D>>()
 
     public fun setProxy(spec: ViewModelSpecWithArg4<VM, A, B, C, D>) {
@@ -298,7 +396,7 @@ public class ViewModelSpecWithArg4<VM : ViewModel, A, B, C, D>(
         assertMainThread()
         val active = proxyState.activeProxy ?: this
         return ViewModelSpec(
-            modelClass = active.modelClass,
+            instanceType = active.instanceType,
             key = active.key?.invoke(arg1, arg2, arg3, arg4),
             tag = active.tag?.invoke(arg1, arg2, arg3, arg4),
             aliveForever = active.aliveForever?.invoke(arg1, arg2, arg3, arg4) ?: false,
@@ -313,7 +411,7 @@ public inline fun <reified VM : ViewModel, A, B, C, D> viewModelSpecWithArg4(
     noinline tag: ((A, B, C, D) -> Any?)? = null,
     noinline aliveForever: ((A, B, C, D) -> Boolean)? = null,
 ): ViewModelSpecWithArg4<VM, A, B, C, D> = ViewModelSpecWithArg4(
-    modelClass = VM::class,
+    modelType = typeOf<VM>(),
     builder = builder,
     key = key,
     tag = tag,

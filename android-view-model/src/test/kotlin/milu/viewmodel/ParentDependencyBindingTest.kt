@@ -185,7 +185,7 @@ class ParentDependencyBindingTest {
     }
 
     @Test
-    fun diamondPropagation_updatesEachBindingOncePerTransaction() {
+    fun diamondPropagation_preservesParentNotificationsAndCoalescesRootRefreshes() {
         val owner = CountingBinding()
         val root = owner.watch(diamondRootSpec)
         val left = root.left
@@ -199,7 +199,7 @@ class ParentDependencyBindingTest {
 
         assertEquals(1, left.notifications)
         assertEquals(1, right.notifications)
-        assertEquals(1, root.notifications)
+        assertEquals(2, root.notifications)
         assertEquals(1, owner.updates)
         owner.dispose()
     }

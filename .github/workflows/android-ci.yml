@@ -32,6 +32,8 @@ jobs:
           bash ./gradlew :android-view-model:testDebugUnitTest
           :android-view-model:assembleDebug :android-view-model:lintDebug
           --no-parallel --max-workers=1 --stacktrace
+      - name: Check R8 type metadata retention
+        run: bash .github/scripts/check-r8-type-metadata.sh
       - name: Upload verification reports
         if: always()
         uses: actions/upload-artifact@v4

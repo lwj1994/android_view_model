@@ -1,7 +1,6 @@
 package milu.viewmodel
 
 import java.util.IdentityHashMap
-import kotlin.reflect.KClass
 
 internal class AutoDisposeInstanceController(
     private val binding: ViewModelBinding,
@@ -17,13 +16,13 @@ internal class AutoDisposeInstanceController(
         private set
 
     fun <Value : Any> getInstance(
-        type: KClass<Value>,
+        type: InstanceType<Value>,
         factory: InstanceFactory<Value>,
     ): Value = getHandle(type, factory).requireInstance()
 
     /** Resolves and tracks the handle so bindings can reuse their direct ownership. */
     fun <Value : Any> getHandle(
-        type: KClass<Value>,
+        type: InstanceType<Value>,
         factory: InstanceFactory<Value>,
     ): InstanceHandle<Value> {
         if (disposed || binding.isDisposed) {
@@ -40,7 +39,7 @@ internal class AutoDisposeInstanceController(
     }
 
     fun <Value : Any> getInstancesByTag(
-        type: KClass<Value>,
+        type: InstanceType<Value>,
         tag: Any,
     ): List<Value> {
         // The binding marks itself disposed before running user teardown callbacks.

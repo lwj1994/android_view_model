@@ -3,9 +3,14 @@ package milu.viewmodel
 import kotlin.reflect.KClass
 
 internal class Store<Value : Any>(
-    private val type: KClass<Value>,
+    private val type: InstanceType<Value>,
     private val onStoreEmpty: (() -> Unit)? = null,
 ) {
+    constructor(
+        type: KClass<Value>,
+        onStoreEmpty: (() -> Unit)? = null,
+    ) : this(InstanceType(type), onStoreEmpty)
+
     private val handles = linkedMapOf<Any, InstanceHandle<Value>>()
     private var nextIndex = 0
     private var disposed = false
@@ -74,7 +79,7 @@ internal class Store<Value : Any>(
             if (disposed) {
                 disposeUntrackedInstance(instance, arg)
                 throw ViewModelError(
-                    "Cannot create ${type.qualifiedName} because its Store was disposed " +
+                    "Cannot create ${type.description} because its Store was disposed " +
                         "while the factory builder was running. The new instance was " +
                         "disposed and was not cached.",
                 )
@@ -88,7 +93,7 @@ internal class Store<Value : Any>(
         if (disposed) {
             created.unbindAll(force = true)
             throw ViewModelError(
-                "Cannot create ${type.qualifiedName} because its Store was disposed " +
+                "Cannot create ${type.description} because its Store was disposed " +
                     "during instance creation. The new instance was disposed and was not cached.",
             )
         }
@@ -129,7 +134,7 @@ internal class Store<Value : Any>(
             reportViewModelError(
                 error,
                 ErrorType.Dispose,
-                "Untracked ${type.qualifiedName} instance dispose error",
+                "Untracked ${type.description} instance dispose error",
             )
         }
     }

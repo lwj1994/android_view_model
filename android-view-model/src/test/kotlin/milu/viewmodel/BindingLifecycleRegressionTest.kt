@@ -35,8 +35,8 @@ class BindingLifecycleRegressionTest {
         val first = RegressionPauseProvider()
         val second = RegressionPauseProvider()
         try {
-            controller.addProvider(first)
-            controller.addProvider(second)
+            controller.addProvider(first, ownsProvider = true)
+            controller.addProvider(second, ownsProvider = true)
             first.change(true)
             second.change(true)
             first.change(false)
@@ -63,15 +63,15 @@ class BindingLifecycleRegressionTest {
         val second = RegressionPauseProvider(initiallyPaused = true)
         val neutral = RegressionPauseProvider()
         try {
-            controller.addProvider(first)
-            controller.addProvider(first)
-            controller.addProvider(second)
+            controller.addProvider(first, ownsProvider = true)
+            controller.addProvider(first, ownsProvider = true)
+            controller.addProvider(second, ownsProvider = true)
             controller.removeProvider(first)
             assertTrue(controller.isPaused)
             assertEquals(listOf("pause"), transitions)
 
             controller.removeProvider(second)
-            controller.addProvider(neutral)
+            controller.addProvider(neutral, ownsProvider = true)
             controller.removeProvider(neutral)
             controller.removeProvider(neutral)
             assertFalse(controller.isPaused)
@@ -93,7 +93,7 @@ class BindingLifecycleRegressionTest {
             onResume = {},
         )
         try {
-            controller.addProvider(RegressionPauseProvider(initiallyPaused = true))
+            controller.addProvider(RegressionPauseProvider(initiallyPaused = true), ownsProvider = true)
             assertTrue(controller.isPaused)
             assertEquals(listOf(ErrorType.PauseResume), errors)
         } finally {
@@ -109,7 +109,7 @@ class BindingLifecycleRegressionTest {
         val controller = PauseAwareController(onPause = {}, onResume = { resumes += 1 })
         val provider = RegressionPauseProvider(initiallyPaused = true, failOnDispose = true)
         try {
-            controller.addProvider(provider)
+            controller.addProvider(provider, ownsProvider = true)
             controller.removeProvider(provider)
             assertFalse(controller.isPaused)
             assertEquals(1, resumes)
@@ -126,7 +126,7 @@ class BindingLifecycleRegressionTest {
         val provider = RegressionPauseProvider(initiallyPaused = true)
         val rejected = RegressionPauseProvider()
         try {
-            controller.addProvider(provider)
+            controller.addProvider(provider, ownsProvider = true)
             controller.dispose()
             controller.dispose()
             assertEquals(1, provider.disposeCalls)
@@ -146,8 +146,8 @@ class BindingLifecycleRegressionTest {
         val second = RegressionPauseProvider()
         val spec = viewModelSpec { LifecycleRegressionViewModel() }
         try {
-            binding.addPauseProvider(first)
-            binding.addPauseProvider(second)
+            binding.addPauseProvider(first, ownsProvider = true)
+            binding.addPauseProvider(second, ownsProvider = true)
             val viewModel = binding.watch(spec)
             first.change(true)
             second.change(true)
