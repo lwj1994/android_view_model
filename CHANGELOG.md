@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-11
+
 ### Changed
 
 - Align repeated spec resolution with Flutter `view_model` PR #82. Each binding
