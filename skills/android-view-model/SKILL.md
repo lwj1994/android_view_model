@@ -343,10 +343,15 @@ instance does not move it forward; creation or recycle can change the next resul
 Apply this contract to both binding and static `ViewModel` cached queries.
 
 For a single-result tag query, return the newest equality-matching instance.
-Emit a debug ambiguity warning only for multiple matches, deduplicated by type
-and query tag object identity without calling the tag's `hashCode`. Clear warning
+Emit an ambiguity warning only when the host enables `ViewModelConfig.isDebugMode`
+and multiple instances match, deduplicated by type and query tag object identity
+without calling the tag's `hashCode`. Clear warning
 history on reset. Use an explicit key for one instance or tag-batch APIs for all
 matches; do not turn supported no-argument queries into deprecated APIs.
+Initialize `isDebugMode` from the consuming app's debug state, such as its own
+`BuildConfig.DEBUG` or `ApplicationInfo.FLAG_DEBUGGABLE`. Do not gate diagnostics
+on the library AAR's build variant or `isLoggingEnabled`; published release AARs
+must still support host-enabled diagnostics. The flag defaults to false.
 
 `maybeWatchCached` and `maybeReadCached` swallow only `ViewModelError` misses.
 They must not hide unrelated exceptions from key/tag code or the runtime.

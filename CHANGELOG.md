@@ -60,6 +60,11 @@ project follows [Semantic Versioning](https://semver.org/).
   including cached and tag-batch queries; `maybe*Cached` returns `null` during
   cleanup. Other bindings remain usable.
 - Exclude handles already being recycled from resolution cache hits.
+- Resolve the R8 metadata smoke test's tool from the applied Android Gradle
+  plugin, including AGP distributions that embed R8 in `builder.jar`.
+- Gate tag ambiguity diagnostics on the host-supplied `ViewModelConfig.isDebugMode`
+  instead of the library's build variant, so published release AARs can warn in
+  debug applications. The flag defaults to false and is independent of normal logging.
 
 ### Documentation
 

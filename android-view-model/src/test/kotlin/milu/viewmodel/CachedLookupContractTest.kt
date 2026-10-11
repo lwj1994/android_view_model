@@ -15,6 +15,7 @@ class CachedLookupContractTest {
     @Before
     fun setUp() {
         ViewModel.reset()
+        ViewModel.initialize(config = ViewModelConfig(isDebugMode = true))
     }
 
     @After
@@ -174,12 +175,37 @@ class CachedLookupContractTest {
             assertTrue(other.isDisposed)
             assertEquals(0, InstanceManager.debugStoreCount)
             assertWarningCount(0)
+            assertFalse(ViewModel.config.isDebugMode)
+            ViewModel.initialize(config = ViewModelConfig(isDebugMode = true))
 
             owner.read(firstSpec)
             val next = owner.read(secondSpec)
             assertNotSame(previous, next)
             assertCachedEntryPoints(next, reader, tag = tag)
             assertWarningCount(1)
+            assertEquals(0, tag.hashCalls)
+        } finally {
+            reader.dispose()
+            owner.dispose()
+        }
+    }
+
+    @Test
+    fun hostDebugModeDisabled_suppressesWarningsForDirectAndFallbackTagQueries() {
+        ViewModel.reset()
+        ViewModel.initialize(config = ViewModelConfig(isDebugMode = false))
+        val owner = ViewModelBinding()
+        val reader = ViewModelBinding()
+        val tag = EqualityOnlyLookupTag("shared")
+        val olderSpec = viewModelSpec(key = "older", tag = tag) { CachedLookupViewModel() }
+        val newerSpec = viewModelSpec(key = "newer", tag = tag) { CachedLookupViewModel() }
+        try {
+            owner.read(olderSpec)
+            val newer = owner.read(newerSpec)
+
+            assertCachedEntryPoints(newer, reader, tag = tag)
+            assertCachedEntryPoints(newer, reader, key = "missing", tag = tag)
+            assertWarningCount(0)
             assertEquals(0, tag.hashCalls)
         } finally {
             reader.dispose()
@@ -282,9 +308,9 @@ class CachedLookupContractTest {
         assertSame(expected, binding.maybeWatchCached<VM>(key = key, tag = tag))
     }
 
-    private fun assertWarningCount(debugCount: Int) {
+    private fun assertWarningCount(expectedCount: Int) {
         assertEquals(
-            if (BuildConfig.DEBUG) debugCount else 0,
+            expectedCount,
             InstanceManager.debugAmbiguousTagLookupWarningCount,
         )
     }

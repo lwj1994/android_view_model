@@ -16,7 +16,10 @@ class GenericTypeIdentityTest {
     private val bindings = mutableListOf<ViewModelBinding>()
 
     @Before
-    fun setUp() = ViewModel.reset()
+    fun setUp() {
+        ViewModel.reset()
+        ViewModel.initialize(config = ViewModelConfig(isDebugMode = true))
+    }
 
     @After
     fun tearDown() {
@@ -120,7 +123,7 @@ class GenericTypeIdentityTest {
         assertTrue(reader.readCachesByTag<GenericIdentityState<Boolean>>(tag).isEmpty())
         assertTrue(reader.watchCachesByTag<GenericIdentityState<Boolean>>(tag).isEmpty())
         assertEquals(
-            if (BuildConfig.DEBUG) 2 else 0,
+            2,
             InstanceManager.debugAmbiguousTagLookupWarningCount,
         )
     }

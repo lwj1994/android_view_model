@@ -195,8 +195,9 @@ public open class ViewModelBinding {
      * With neither, returns the newest cached instance of this type by creation order;
      * reading an older instance does not change that order. Creation or recycling can change
      * the next result. An unqualified lookup is supported without warnings. A single-result
-     * tag lookup warns in debug builds only when multiple instances match; use [readCachesByTag]
-     * when all matches are needed. Tags match by equality; warnings use tag object identity.
+     * tag lookup warns when [ViewModelConfig.isDebugMode] is enabled and multiple instances match;
+     * use [readCachesByTag] when all matches are needed. Tags match by equality;
+     * warnings use tag object identity.
      */
     public inline fun <reified VM : ViewModel> readCached(
         key: Any? = null,

@@ -612,12 +612,22 @@ Creation order, not access order, determines the result: reading an older
 instance does not make it the newest. Creating or recycling instances can change
 the next result. No-argument lookup is supported and emits no warning.
 
-A single-result tag lookup returns the newest matching instance. In debug
-builds, multiple matches emit an ambiguity warning once per resolved type and
-query tag object identity. Matching still uses tag equality; warning deduplication
+A single-result tag lookup returns the newest matching instance. When the host
+enables `ViewModelConfig.isDebugMode`, multiple matches emit an ambiguity warning
+once per resolved type and query tag object identity. Matching still uses tag equality; warning deduplication
 does not call the tag's `hashCode`. Equal tags represented by different objects
 can each produce a warning. `ViewModel.reset()` clears the warning history. Use
 an explicit key for one instance or a tag-batch API for all matches.
+
+Pass the consuming app's debug state once from `Application.onCreate`, even when
+using the published release AAR. Diagnostics default to disabled and are
+independent of `isLoggingEnabled`:
+
+```kotlin
+ViewModel.initialize(
+    config = ViewModelConfig(isDebugMode = BuildConfig.DEBUG), // The app's BuildConfig.
+)
+```
 
 The `maybe*Cached` variants convert only a `ViewModelError` miss to `null`.
 Programming errors and exceptions raised by key/tag implementations still

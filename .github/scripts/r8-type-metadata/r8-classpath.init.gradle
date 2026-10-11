@@ -1,0 +1,18 @@
+// Resolve R8 from the applied AGP, whether embedded in builder.jar or standalone.
+gradle.beforeProject { project ->
+    project.pluginManager.withPlugin('com.android.library') {
+        project.tasks.register('writeR8JarLocation') {
+            doLast {
+                def plugin = project.plugins.getPlugin('com.android.library')
+                def r8 = plugin.class.classLoader.loadClass('com.android.tools.r8.R8')
+                def jar = new File(r8.protectionDomain.codeSource.location.toURI())
+                if (!jar.isFile()) {
+                    throw new GradleException("R8 was not loaded from a jar: $jar")
+                }
+                def output = project.layout.buildDirectory.file('reports/r8-type-metadata/r8-jar.txt').get().asFile
+                output.parentFile.mkdirs()
+                output.text = jar.absolutePath
+            }
+        }
+    }
+}

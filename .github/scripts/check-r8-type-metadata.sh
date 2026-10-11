@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run after Gradle verification, using the same JDK 21 and cached AGP/R8 dependency.
+# Run with the same JDK 21 and R8 implementation as the Android Gradle build.
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repository_dir="$(cd -- "$script_dir/../.." && pwd)"
 report_dir="$repository_dir/android-view-model/build/reports/r8-type-metadata"
 fixture_dir="$script_dir/r8-type-metadata"
 r8_java_home="${JAVA_HOME:?Set JAVA_HOME to the JDK used by the Android CI build.}"
-r8_cache_dir="${GRADLE_USER_HOME:-$HOME/.gradle}/caches/modules-2/files-2.1/com.android.tools/r8"
+
+mkdir -p "$report_dir"
 
 if [[ -n "${R8_JAR:-}" ]]; then
     r8_jar="$R8_JAR"
 else
-    if [[ ! -d "$r8_cache_dir" ]]; then
-        echo "R8 is absent from the Gradle cache; run the Android Gradle verification first." >&2
-        exit 1
-    fi
-    r8_jar="$(rg --files "$r8_cache_dir" -g 'r8-*.jar' -g '!*-sources.jar' -g '!*-javadoc.jar' | sort -V | tail -n 1)"
+    # AGP can embed R8 in builder.jar. Ask the applied plugin for the loaded
+    # implementation rather than guessing a cache layout or selecting another version.
+    "$repository_dir/gradlew" -p "$repository_dir" \
+        --init-script "$fixture_dir/r8-classpath.init.gradle" \
+        :android-view-model:writeR8JarLocation --no-parallel --max-workers=1
+    r8_jar="$(cat "$report_dir/r8-jar.txt")"
 fi
 if [[ ! -f "$r8_jar" ]]; then
-    echo "No cached R8 jar found. R8_JAR may select an already installed R8 jar." >&2
+    echo "R8 jar does not exist: $r8_jar" >&2
     exit 1
 fi
 
-mkdir -p "$report_dir"
 work_dir="$(mktemp -d "$report_dir/work.XXXXXX")"
 mkdir -p "$work_dir/input-classes" "$work_dir/verifier-classes"
 {

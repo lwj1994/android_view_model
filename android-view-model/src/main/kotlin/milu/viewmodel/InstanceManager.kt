@@ -45,7 +45,7 @@ public object InstanceManager {
         if (factory == null || factory.isEmpty) {
             val found = store.findNewest(tag = factory?.arg?.tag)
                 ?: throw ViewModelError("no ${type.description} instance found")
-            if (BuildConfig.DEBUG && factory?.arg?.tag != null) {
+            if (ViewModel.config.isDebugMode && factory?.arg?.tag != null) {
                 warnAmbiguousTagLookup(type, store, factory.arg.tag)
             }
             val bindingId = factory?.arg?.bindingId
@@ -68,7 +68,7 @@ public object InstanceManager {
             } catch (_: ViewModelError) {
                 val found = store.findNewest(tag = factory.arg.tag)
                     ?: throw ViewModelError("no ${type.description} instance found")
-                if (BuildConfig.DEBUG) {
+                if (ViewModel.config.isDebugMode) {
                     warnAmbiguousTagLookup(type, store, factory.arg.tag)
                 }
                 val bindingId = factory.arg.bindingId

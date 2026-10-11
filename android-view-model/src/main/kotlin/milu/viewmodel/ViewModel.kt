@@ -56,7 +56,8 @@ public open class ViewModel(
          * Prefer [ViewModelBinding.read] with a stable spec for normal dependency resolution.
          * Tries [key] first, then [tag] if provided. With neither, returns the newest cached
          * instance by creation order, without warnings; reading an older instance does not
-         * change that order. Single-result tag lookups warn in debug builds when ambiguous.
+         * change that order. Ambiguous single-result tag lookups warn when the host enables
+         * [ViewModelConfig.isDebugMode], independently of normal logging.
          * This static query does not establish binding ownership.
          */
         public inline fun <reified VM : ViewModel> readCached(
