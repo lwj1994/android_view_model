@@ -91,8 +91,16 @@ A key or tag on a spec does not change this order. Pass the keyed/tagged spec to
 
 ## Identity, sharing, and retention
 
-- Identity is the resolved ViewModel type plus the effective `key`. The
-  builder's runtime result and `tag` do not participate in identity.
+- Treat identity as the resolved ViewModel type plus the effective `key`.
+  Do not include the spec object, builder, constructor arguments, builder's
+  runtime result, or `tag` in identity. Different unkeyed specs or arguments
+  of the same type reuse one instance within a binding; later builders do not run.
+- Preserve generic type arguments and their nullability in that resolved type.
+  Use the reified spec helpers and typed cached APIs for generic ViewModels.
+  Keep non-generic top-level and static nested `KClass` factories compatible.
+  Require a reified spec, a `KType` constructor, or `TypedViewModelFactory` for
+  generic and non-static inner classes instead of accepting erased declarations.
+  Preserve the raw-type checks' required class metadata in consumer R8 rules.
 - With no explicit key, one binding reuses one instance per resolved ViewModel
   type and remains isolated from other bindings.
 - Use a key for intentional cross-binding sharing or multiple instances of the
@@ -119,7 +127,8 @@ val sessionSpec = viewModelSpec(
 
 Parameterized factories use `viewModelSpecWithArg` and
 `viewModelSpecWithArg2...4`. Prefer a key derived from arguments when equal
-arguments are intended to share.
+arguments are intended to share and different arguments should create separate
+instances; arguments alone do not distinguish unkeyed instances.
 
 ### Local scope: sharing one instance across pages
 
@@ -211,6 +220,11 @@ different processes and needs to synchronize `StateViewModel` snapshots:
   ordering and prevent remote updates from echoing back as local writes. The
   IPC authority must reject older records and notify clients even when a
   concurrent candidate loses, so that loser observes the winner.
+- Preserve new local corrections made by listeners during remote-state delivery.
+  Freeze a local record's version at state commit; skip pending snapshots that
+  a newer accepted state supersedes, while delivering all business state events.
+  Report comparator failures without terminating collection, and propagate
+  coroutine cancellation.
 - This synchronizes state, not ViewModel identity, lifecycle, commands,
   listeners, or coroutine jobs. Use Binder/AIDL command APIs separately when
   remote method invocation is the actual requirement.
@@ -296,6 +310,15 @@ mechanism used inside those delegates.
 | `watch(spec)` | Yes | Yes | Yes | Yes |
 | `read(spec)` | Yes | Yes | No | Yes |
 
+Keep delegate resolution on every access. The binding caches live handles by
+resolved type and effective key and skips Store lookup only while it still owns
+the handle directly and the handle is not being recycled. Preserve watch
+subscription upgrades and `aliveForever`
+key validation on hits; propagated ownership alone cannot satisfy the fast path.
+Invalidate cached resolutions on unbind, recycle, handle disposal, and reset,
+and clear them when the binding is disposed. Reacquire direct ownership on the
+next access after unbind, or create a new generation if the old one was disposed.
+
 ## Cached lookup APIs (advanced)
 
 Do not replace a stable spec with cache lookup. These APIs couple the caller to
@@ -312,9 +335,23 @@ cross-owner state.
 | `watchCachesByTag<T>` | No, all hits | Yes | Yes | Yes |
 | `readCachesByTag<T>` | No, all hits | Yes | No | Yes |
 
-Non-`maybe` single-result cached lookups throw on a miss. A single lookup by tag
-can be ambiguous and depends on cache creation order; use the batch API when a
-tag may match several instances.
+Preserve key-first lookup, with tag fallback only when a key misses and a tag is
+also supplied. Non-`maybe` single-result cached lookups throw on a miss.
+With neither key nor tag, return the newest instance of that type still cached
+and emit no warning. Use creation order, not access order: reading an older
+instance does not move it forward; creation or recycle can change the next result.
+Apply this contract to both binding and static `ViewModel` cached queries.
+
+For a single-result tag query, return the newest equality-matching instance.
+Emit an ambiguity warning only when the host enables `ViewModelConfig.isDebugMode`
+and multiple instances match, deduplicated by type and query tag object identity
+without calling the tag's `hashCode`. Clear warning
+history on reset. Use an explicit key for one instance or tag-batch APIs for all
+matches; do not turn supported no-argument queries into deprecated APIs.
+Initialize `isDebugMode` from the consuming app's debug state, such as its own
+`BuildConfig.DEBUG` or `ApplicationInfo.FLAG_DEBUGGABLE`. Do not gate diagnostics
+on the library AAR's build variant or `isLoggingEnabled`; published release AARs
+must still support host-enabled diagnostics. The flag defaults to false.
 
 `maybeWatchCached` and `maybeReadCached` swallow only `ViewModelError` misses.
 They must not hide unrelated exceptions from key/tag code or the runtime.
@@ -382,12 +419,22 @@ class CheckoutViewModel : ViewModel() {
   the parent's lifetime, and mirrors current root owners in real time.
 - Ownership is source-aware. Direct and multiple parent paths sharing one
   visible binding id are released independently.
-- Synchronous propagation is transaction-based; each binding updates at most
-  once even in a diamond graph.
+- Coalesce only external root refresh requests within a synchronous transaction.
+  Forward every dependency notification so business listeners receive the final
+  derived value after both paths of a diamond update.
 
 ## Lifecycle controls and safety
 
 - Routine cleanup is binding-driven; do not call lifecycle hooks directly.
+- Use `binding.unbind(vm)` to release only that binding's direct ownership and
+  attached subscriptions. For a parent dependency binding, also release roots
+  propagated through the removed dependency edge. Preserve independent direct
+  and parent paths; final-owner cleanup still respects `aliveForever`.
+- Reject reentrant `read`, `watch`, cached, and tag-batch ownership acquisition
+  only through the binding whose `unbind` cleanup is in progress, using
+  `ViewModelError`; keep its `maybe*Cached` result `null` and other bindings usable.
+  Defer parent update notifications until detachment finishes, then allow normal
+  resolution from their callbacks to restore ownership or obtain a new generation.
 - `recycle(vm)` is a destructive global escape hatch. It removes every owner
   path and force-disposes the managed object, including `aliveForever`.
 - There is no in-place replacement capability. Use a new explicit key for an
@@ -404,7 +451,14 @@ class CheckoutViewModel : ViewModel() {
   The complete sequence is reentrancy-guarded so nested reset attempts from
   teardown cannot clear the active error/lifecycle pipeline early.
 - Recursive construction and runtime ownership cycles throw `ViewModelError`.
-  A failed build rolls back children created by its dependency scope.
+  Roll back a failed build's children, registered `addDispose` resources, and
+  coroutine scope exactly once. Do not call a partially initialized subclass's
+  teardown hook; register already-initialized base resources separately.
+
+- Treat `addPauseProvider(source)` as a borrowed subscription. Shared pause
+  sources must keep independent listeners; removing one binding must not stop
+  another. Use `addPauseProvider(source, ownsProvider = true)` only when that
+  binding owns the source's lifetime. Built-in host providers are owned.
 
 Lifecycle hooks are `onCreate`, `onBind`, `onUnbind`, and `onDispose`. Register
 owned resources with `addDispose` and let the framework invoke cleanup.
@@ -429,9 +483,14 @@ owned resources with `addDispose` and let the framework invoke cleanup.
   `ViewModel.config.equals` → reference identity.
 - `listenStateSelect` and Compose `selectViewModelState` compare selected values
   with local `equals` → global `ViewModel.config.equals` → Kotlin `==`.
-- A state transition freezes its previous/current pair before listener dispatch;
-  a reentrant synchronous `setState` does not corrupt the pair delivered to
-  later listeners.
+- Type `listenState` callbacks as `(T, T) -> Unit` and selected callbacks as
+  `(R, R) -> Unit`. Emit no initial callback. Preserve nullable values only when
+  the state or selected type itself is nullable; do not add `?` solely because
+  a parameter represents the previous value.
+- Commit state immediately and freeze its previous/current pair. Deliver state
+  events in FIFO order, including reentrant `setState` calls, with the whole
+  drain in one update transaction. Stop remaining and queued events on disposal;
+  `vm.state` can already be newer than a callback's frozen event.
 - For selector-level observation, use a read-style resolution and let the
   selector/listener own updates instead of also adding a broad `watch`.
 

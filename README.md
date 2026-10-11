@@ -20,6 +20,30 @@ Every functional unit can be a ViewModel: UI state, repositories, services, coor
 
 Instance identity is the resolved ViewModel type plus its effective key. An unkeyed spec uses a private key owned by the current binding, so repeated resolution of the same type reuses one instance inside that binding while different bindings remain isolated. Use explicit keys for cross-binding sharing or multiple instances of the same type in one binding.
 
+The resolved type includes generic arguments and their nullability. For example,
+`StateViewModel<Int>` and `StateViewModel<String>` use separate identities even
+with an equal key. Reified spec helpers and cached queries preserve the complete
+type. Existing non-generic top-level and static nested `KClass` factory
+declarations remain supported. Generic classes and non-static inner classes need
+a complete type and reject raw `KClass` declarations instead of risking an
+instance with the wrong state type. Use a reified spec helper, a `KType` spec
+constructor, or `TypedViewModelFactory` with `typeOf<VM>()`; reified helpers also
+support inner classes. The library includes consumer rules for the class metadata
+used by the raw-type checks in optimized Android builds.
+
+The spec object, builder, and constructor arguments do not participate in identity.
+Two different unkeyed specs of the same type resolve the same instance within one
+binding; the later builder does not run. Calling an unkeyed argument spec with
+different arguments also reuses that instance. Include distinguishing arguments
+in an explicit key when they should identify separate instances.
+
+| Resolution pattern | Instance behavior |
+| --- | --- |
+| Same type, same binding, no explicit key | One instance, even with different specs or arguments. |
+| Same type, different bindings, no explicit key | Separate instances. |
+| Same type, equal explicit keys | Shared across bindings while alive. |
+| Different types, equal explicit keys | Separate instances. |
+
 ## Install Skill
 
 Install the bundled skill for AI coding agents before working with the library:
@@ -512,6 +536,12 @@ data class ProcessCounterState(
   gap.
 - Records carry `version` and `sourceId` so concurrent writers can reject older
   snapshots and avoid echoing an applied remote state.
+- A local correction made by a listener while applying a remote state is a new
+  local transition and is published. Local records capture their version when
+  state changes commit; pending snapshots superseded by a newer accepted state
+  may be coalesced, while business state listeners still receive every transition.
+- A failing state comparator reports through `ViewModel.config.onError` without
+  ending the remote-state collector. Coroutine cancellation still propagates.
 - Parcelable is an IPC transport format, not a durable disk schema. If state
   must survive termination of the state-store process, persist it separately
   with an explicitly versioned format.
@@ -538,6 +568,20 @@ Normal application code should keep a stable spec and use one of these APIs:
 Choose `watch` when ViewModel notifications should update the owner. Choose
 `read` for lifecycle-bound access without subscribing to those notifications.
 
+Each binding caches resolved handles by type and effective key. Repeated spec
+resolution reuses a live handle only while it is not being recycled and the
+binding still owns it directly, skipping the Store and repeated ownership
+registration. Delegates continue to resolve on
+every access; they do not retain a VM themselves. A `watch` after an earlier
+`read` still adds notification observation, and every resolution still validates
+the explicit-key requirement for `aliveForever`.
+
+Unbinding, recycling, handle disposal, and `ViewModel.reset()` invalidate those
+cached resolutions; disposing the binding clears them. Ownership propagated
+through a parent does not replace direct ownership. After `binding.unbind(vm)`,
+the next delegated access establishes direct ownership again if the VM is still
+alive, or creates a new generation if it was disposed.
+
 ### Advanced: cached lookup
 
 > [!CAUTION]
@@ -556,9 +600,34 @@ Choose `watch` when ViewModel notifications should update the owner. Choose
 | `watchCachesByTag<T>` | No; returns all hits | Yes | Yes | Yes |
 | `readCachesByTag<T>` | No; returns all hits | Yes | No | Yes |
 
-Single-result non-`maybe` lookups throw on a miss, and tag lookup can be
-ambiguous when several instances share a tag. If the caller has a spec—even a
-keyed or tagged spec—use `by watchViewModel(spec)` / `by readViewModel(spec)` instead.
+Single-result non-`maybe` lookups throw on a miss. An explicit key takes priority;
+if it misses and a tag is also supplied, lookup falls back to that tag. If the
+caller has a spec—even a keyed or tagged spec—use `by watchViewModel(spec)` /
+`by readViewModel(spec)` instead.
+
+A single-result lookup with neither key nor tag returns the most recently
+created instance of the requested type still in the shared cache. This applies
+to binding and `ViewModel.readCached` / `ViewModel.maybeReadCached` queries.
+Creation order, not access order, determines the result: reading an older
+instance does not make it the newest. Creating or recycling instances can change
+the next result. No-argument lookup is supported and emits no warning.
+
+A single-result tag lookup returns the newest matching instance. When the host
+enables `ViewModelConfig.isDebugMode`, multiple matches emit an ambiguity warning
+once per resolved type and query tag object identity. Matching still uses tag equality; warning deduplication
+does not call the tag's `hashCode`. Equal tags represented by different objects
+can each produce a warning. `ViewModel.reset()` clears the warning history. Use
+an explicit key for one instance or a tag-batch API for all matches.
+
+Pass the consuming app's debug state once from `Application.onCreate`, even when
+using the published release AAR. Diagnostics default to disabled and are
+independent of `isLoggingEnabled`:
+
+```kotlin
+ViewModel.initialize(
+    config = ViewModelConfig(isDebugMode = BuildConfig.DEBUG), // The app's BuildConfig.
+)
+```
 
 The `maybe*Cached` variants convert only a `ViewModelError` miss to `null`.
 Programming errors and exceptions raised by key/tag implementations still
@@ -586,8 +655,11 @@ forward child notifications through the parent, ultimately refreshing bindings
 that watch the parent. Removing the dependency-update hook does not make
 `read` and `watch` equivalent: their ownership is the same, but only `watch`
 subscribes to the child's own notifications. Both still observe handle disposal.
-Synchronous propagation is transaction-based, so diamond dependency graphs
-update each binding at most once.
+Synchronous propagation is transaction-based. Only external root binding
+refresh requests are coalesced; dependency bindings forward every notification.
+Explicit business listeners can observe intermediate values and the final value
+as both branches of a diamond update. Use those listeners for business work;
+root `onUpdate` requests a refresh at the first event in the transaction.
 
 There is no `onDependencyNotify` override hook. For business reactions, register
 binding `listen`, `listenState`, or `listenStateSelect` once during
@@ -617,23 +689,61 @@ Nested ViewModel delegate declarations create nothing until first accessed. Afte
 
 ## Lifecycle controls
 
+- `binding.unbind(vm)` releases that binding's direct ownership and attached
+  subscriptions. A parent dependency binding also releases root ownership
+  propagated along the removed dependency edge. Independent direct and parent
+  owner paths remain; the instance auto-disposes only when its final owner path
+  leaves, unless retained by `aliveForever`.
 - `recycle(vm)` is a destructive global escape hatch. It removes every owner and disposes the shared object, including `aliveForever` instances.
 - `ViewModel.reset()` is the complete process-wide test reset. It force-disposes
   all cached generations before clearing configuration and lifecycle observers;
   nested reset attempts during teardown are ignored until that sequence ends.
 
+While `unbind` cleanup is in progress, that binding rejects ownership acquisition
+through `read`, `watch`, cached queries, and tag-batch queries with `ViewModelError`;
+its `maybe*Cached` queries return `null`. Other bindings remain usable. Parent
+update notifications wait until detachment is complete, so their callbacks can
+resolve normally and obtain the current generation.
+
 There is no in-place instance replacement API. To obtain an independent instance, use a new explicit key. If replacing the shared cached generation globally is intentional, call `recycle(vm)` and access the delegated property again; the delegate resolves the new generation automatically. The cache miss creates a new handle and dependency tree; owner paths, watch/listen subscriptions, and dependency edges are not migrated from the disposed object.
 
 After `recycle`, access ViewModels through `by`-delegated properties; a stored reference keeps pointing at the disposed object.
 
-Construction and dependency graphs are checked. Recursive construction and runtime ownership cycles throw `ViewModelError`; a failed build rolls back children created by that dependency scope.
+Construction and dependency graphs are checked. Recursive construction and runtime
+ownership cycles throw `ViewModelError`. A failed build rolls back children created
+by that dependency scope, runs resources registered with `addDispose` exactly once,
+and cancels the failed generation's `viewModelScope`. Successful construction keeps
+these resources until normal disposal. Rollback does not invoke a partially
+initialized subclass's teardown hook.
+
+### Pause sources
+
+Pause sources combine with OR: updates pause while any source is paused, then one
+catch-up refresh runs when all sources resume. A source can be shared by multiple
+bindings; each binding owns an independent subscription.
+
+`binding.addPauseProvider(source)` borrows the source. Removing it or disposing the
+binding only removes that binding's subscription; the source's owner disposes it
+when no longer needed. Use `addPauseProvider(source, ownsProvider = true)` when the
+binding also owns the source's lifetime. Built-in Android host bindings own the
+lifecycle providers they create and remove them when the corresponding owner ends.
 
 ## State and fine-grained observation
 
 - `setState` is the only operation that emits a state diff; `notifyListeners()` only reaches broad ViewModel listeners.
 - Full-state equality is constructor `equals` → `ViewModel.config.equals` → reference identity.
 - `listenStateSelect` and Compose `selectViewModelState` compare selected values with local `equals` → `ViewModel.config.equals` → Kotlin `==`.
-- Each `setState` captures an immutable previous/current transition before dispatch; nested synchronous state changes cannot rewrite the pair seen by later listeners.
+- `listenState` callbacks receive `(previous: T, current: T) -> Unit`, and
+  `listenStateSelect` receives the corresponding selected type `R` for both
+  values. Listeners run only for actual transitions, with no initial callback.
+  A previous value is nullable only when `T` or `R` itself is nullable; nullable
+  state and nullable selector results remain supported.
+- Each `setState` commits state immediately and captures an immutable
+  previous/current transition. Events are delivered in FIFO order: a reentrant
+  state change waits until the current event reaches the remaining listeners.
+  The entire synchronous drain shares one update transaction. Disposing the VM
+  stops remaining and queued callbacks. Because state commits immediately,
+  `vm.state` may already be newer than the event a listener is processing.
 - For selector-level UI observation, obtain the ViewModel with a read-style API and let the selector own updates; do not add a broad `watch` subscription to the same instance.
 
 ## Spec overrides

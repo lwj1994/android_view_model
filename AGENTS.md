@@ -31,6 +31,10 @@ skills/android-view-model/                        AI skill
 2. Identity is the resolved ViewModel type plus effective key. Unkeyed instances
    are reused by type within one binding and isolated across bindings. Explicit
    keys are for cross-binding sharing or multiple instances of the same type.
+   Preserve generic arguments and their nullability throughout resolution,
+   Store/cached lookups, and construction lineage. Keep non-generic top-level and
+   static nested KClass factories compatible; require complete types for generic
+   and non-static inner classes. Never silently erase a factory's type arguments.
 3. Default to binding-managed non-singleton modules. Do not automatically add
    keys or `aliveForever` to ordinary services. Every `aliveForever` spec requires
    an explicit key, validated before the builder for both root and nested
@@ -55,8 +59,9 @@ skills/android-view-model/                        AI skill
    bindings. Their lifecycle semantics match, but notification semantics differ.
    There is no dependency-update business hook. Register binding
    `listen/listenState/listenStateSelect` once during initialization, never in a
-   delegate's binding lambda. Synchronous graphs deduplicate updates by binding;
-   both `read/watch` still observe handle disposal.
+   delegate's binding lambda. Synchronous graphs coalesce only external root
+   refreshes; dependency bindings and business listeners receive every event,
+   including later paths in a diamond. Both `read/watch` still observe handle disposal.
 7. Do not introduce an in-place `recreate` API. Use a new explicit key for an
    independent instance. If affecting all owners is intentional, globally
    `recycle` first; the next delegated access uses the normal `watch/read(spec)`
@@ -74,6 +79,8 @@ skills/android-view-model/                        AI skill
     aliveForever are complete overrides, not fallbacks to the base spec.
 11. State equality is local → global → identity; selector equality is local →
     global → Kotlin `==`. Compose typed selectors use read-style ownership.
+    State changes commit immediately, then deliver frozen transitions in FIFO
+    order, including reentrant changes, within one synchronous update transaction.
     Watch/read must resolve the current generation after recycle.
 12. Resolved `ViewModel` / `StateViewModel` instances stay within the ownership
     boundary that resolved them. Never pass them as dependencies or arguments
@@ -136,6 +143,10 @@ Central publishing tasks unless explicitly requested and credentials are availab
 - Aggregate pause sources with OR. Call `onPause/onResume` only when the aggregate
   changes. One source resuming must not override another paused source, and
   destroying the controller must not trigger resume callbacks.
+- Shared pause sources need independent subscriptions. A binding borrows an
+  externally supplied source by default and only cancels its own subscription;
+  use `ownsProvider = true` for a source whose lifetime belongs to that binding.
+  Built-in Android hosts own the lifecycle sources they create.
 - All queries on disposed bindings must reject new ownership, including tag
   batch queries and teardown reentrancy after the binding is marked disposed
   but before controller cleanup completes.

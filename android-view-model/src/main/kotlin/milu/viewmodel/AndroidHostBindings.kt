@@ -23,7 +23,7 @@ internal class ViewModelBindingHolder : AndroidXViewModel(), DefaultLifecycleObs
         if (pauseProviders.containsKey(owner)) return
         val provider = LifecyclePauseProvider(owner)
         pauseProviders[owner] = provider
-        binding.addPauseProvider(provider)
+        binding.addPauseProvider(provider, ownsProvider = true)
         owner.lifecycle.addObserver(this)
     }
 
@@ -95,7 +95,7 @@ public val Fragment.viewLifecycleViewModelBinding: ViewModelBinding
         val view = requireView()
         val binding = view.viewModelBinding
         if (view.getTag(R.id.milu_view_model_binding_lifecycle_owner) !== owner) {
-            binding.addPauseProvider(LifecyclePauseProvider(owner))
+            binding.addPauseProvider(LifecyclePauseProvider(owner), ownsProvider = true)
             owner.lifecycle.addObserver(
                 object : DefaultLifecycleObserver {
                     override fun onDestroy(owner: LifecycleOwner) {

@@ -63,6 +63,10 @@ public class ViewModelBindingHandler {
         }
     }
 
+    /** Whether this binding owns the ViewModel through its own direct source. */
+    internal fun hasDirectRef(binding: ViewModelBinding): Boolean =
+        refSources[binding]?.contains(binding) == true
+
     internal fun removeRef(
         binding: ViewModelBinding,
         source: Any = binding,

@@ -10,6 +10,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KClass
+import kotlin.reflect.typeOf
 
 /**
  * Business ViewModel base class.
@@ -53,15 +54,21 @@ public open class ViewModel(
         /**
          * Advanced lookup-only API for an instance already created by another owner.
          * Prefer [ViewModelBinding.read] with a stable spec for normal dependency resolution.
+         * Tries [key] first, then [tag] if provided. With neither, returns the newest cached
+         * instance by creation order, without warnings; reading an older instance does not
+         * change that order. Ambiguous single-result tag lookups warn when the host enables
+         * [ViewModelConfig.isDebugMode], independently of normal logging.
+         * This static query does not establish binding ownership.
          */
         public inline fun <reified VM : ViewModel> readCached(
             key: Any? = null,
             tag: Any? = null,
-        ): VM = readCached(VM::class, key, tag)
+        ): VM = readCached(InstanceType(VM::class, typeOf<VM>()), key, tag)
 
         /**
          * Advanced lookup-only API that returns `null` on a miss.
          * Prefer spec-based resolution in normal application code.
+         * Lookup order and debug ambiguity diagnostics are the same as [readCached].
          */
         public inline fun <reified VM : ViewModel> maybeReadCached(
             key: Any? = null,
@@ -77,10 +84,17 @@ public open class ViewModel(
             modelClass: KClass<VM>,
             key: Any?,
             tag: Any?,
+        ): VM = readCached(InstanceType(modelClass), key, tag)
+
+        @PublishedApi
+        internal fun <VM : ViewModel> readCached(
+            type: InstanceType<VM>,
+            key: Any?,
+            tag: Any?,
         ): VM {
             assertMainThread()
             return InstanceManager.get(
-                modelClass,
+                type,
                 InstanceFactory(arg = InstanceArg(key = key, tag = tag)),
             )
         }
@@ -132,7 +146,11 @@ public open class ViewModel(
     public val hasListeners: Boolean
         get() = listeners.isNotEmpty()
 
-    public val viewModelScope: CoroutineScope = CoroutineScope(coroutineContext)
+    public val viewModelScope: CoroutineScope = CoroutineScope(coroutineContext).also { scope ->
+        // A subclass constructor can fail before its handle exists. Cancel the initialized
+        // scope directly; invoking lifecycle hooks on that half-built object is unsafe.
+        registerViewModelConstructionRollback { scope.cancel() }
+    }
 
     public val refHandler: ViewModelBindingHandler = ViewModelBindingHandler()
 

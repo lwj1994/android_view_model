@@ -38,6 +38,16 @@ internal class ViewModelDependencyBinding(
     ) {
         dependencies.remove(handle)
         super.handleInstanceDetached(handle, viewModel)
+        propagatedOwners.toList().forEach { owner ->
+            detachOwner(handle, viewModel, owner)
+        }
+    }
+
+    override fun handleInstanceDetachmentComplete(
+        handle: InstanceHandle<*>,
+        viewModel: ViewModel,
+    ) {
+        super.handleInstanceDetachmentComplete(handle, viewModel)
         notifyParentAfterDetach()
     }
 
@@ -68,11 +78,12 @@ internal class ViewModelDependencyBinding(
         if (
             dependencyDisposed ||
             parent.isDisposed ||
-            InstanceManager.isResetting ||
-            !markViewModelBindingUpdated(this)
+            InstanceManager.isResetting
         ) {
             return
         }
+        // A detached dependency can change a value observed by business listeners.
+        // Preserve every parent notification; only external root refreshes coalesce.
         parent.notifyListeners()
     }
 

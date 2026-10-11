@@ -7,6 +7,73 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Align repeated spec resolution with Flutter `view_model` PR #82. Each binding
+  caches handles by resolved type and effective key, reusing live handles it
+  still owns directly without repeating Store lookup and ownership registration.
+  Watch subscriptions and `aliveForever` key validation remain active on cache
+  hits; unbind, recycle, handle disposal, binding disposal, and reset invalidate
+  cached resolutions.
+- Find the newest cached instance with a single O(n) scan. No-key/no-tag queries
+  remain supported without warnings and use creation order, not access order.
+  Ambiguous single-result tag queries emit debug warnings once per type and tag
+  object identity without calling the tag's `hashCode`; tag matching still uses
+  equality, and reset clears warning history.
+- **Breaking (callback types):** Change `listenState` and `listenStateSelect`
+  previous-value parameters from `T?` to `T` throughout the state and binding
+  APIs. Every callback represents an actual transition; values remain nullable
+  when the state or selected type itself is nullable.
+
+### Added
+
+- Expose `binding.unbind(vm)` to release only the current binding's direct
+  ownership and subscriptions. Other owner paths remain intact, and the next
+  delegated access restores ownership or resolves a new generation.
+
+### Fixed
+
+- Deliver reentrant state transitions in FIFO order within one update
+  transaction, keeping selector values current and stopping queued callbacks
+  after disposal.
+- Coalesce external root refreshes only. Forward every dependency notification
+  so explicit business listeners reach the final value through diamond graphs.
+- Preserve generic type arguments throughout spec resolution, Store identity,
+  cached queries, and construction checks instead of mixing instances by raw
+  `KClass`. Require complete types for generic/non-static inner declarations,
+  and retain the raw-type checks' required metadata in R8 consumer rules.
+- Roll back constructor-registered cleanup and cancel the failed generation's
+  coroutine scope when construction fails before a handle exists.
+- Give shared pause providers independent subscriptions. External sources are
+  borrowed by default; `ownsProvider = true` explicitly transfers disposal
+  responsibility to the binding.
+- Publish local corrections made during remote-state delivery, freeze record
+  versions at state commit, and skip pending snapshots superseded by newer state.
+- Keep remote-state collection alive after comparator failures and preserve
+  coroutine cancellation. Route failures while creating an observation Flow
+  through the same error pipeline as failures from the Flow itself.
+- Release root owner paths propagated through a dependency edge when its parent
+  binding unbinds the child, while preserving independent owner paths.
+- Defer parent update notifications until unbind detachment is complete so
+  callback-driven resolution can safely acquire the current generation.
+- Reject reentrant ownership acquisition through the binding being unbound,
+  including cached and tag-batch queries; `maybe*Cached` returns `null` during
+  cleanup. Other bindings remain usable.
+- Exclude handles already being recycled from resolution cache hits.
+- Resolve the R8 metadata smoke test's tool from the applied Android Gradle
+  plugin, including AGP distributions that embed R8 in `builder.jar`.
+- Gate tag ambiguity diagnostics on the host-supplied `ViewModelConfig.isDebugMode`
+  instead of the library's build variant, so published release AARs can warn in
+  debug applications. The flag defaults to false and is independent of normal logging.
+
+### Documentation
+
+- Clarify that spec objects, builders, and constructor arguments are not part of
+  instance identity; only the resolved type and effective key identify a VM.
+  Keep stable specs and `by` delegates as the primary business APIs, and explain
+  resolution caching, cached-query ordering, and listener nullability in the
+  README and bundled skill.
+
 ## [0.7.2] - 2026-09-09
 
 ### Changed

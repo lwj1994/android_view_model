@@ -11,6 +11,8 @@ public data class ViewModelConfig(
     val isLoggingEnabled: Boolean = false,
     val equals: ((Any?, Any?) -> Boolean)? = null,
     val onError: ((Throwable, ErrorType) -> Unit)? = null,
+    /** Enables ambiguity diagnostics; set from the consuming application's debug state. */
+    val isDebugMode: Boolean = false,
 )
 
 internal object ViewModelGlobalConfig {
