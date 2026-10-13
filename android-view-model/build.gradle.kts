@@ -1,7 +1,11 @@
+import kotlinx.kover.gradle.plugin.dsl.AggregationType
+import kotlinx.kover.gradle.plugin.dsl.CoverageUnit
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlinx.kover")
     id("com.vanniktech.maven.publish")
     id("signing")
 }
@@ -40,6 +44,7 @@ android {
     testOptions {
         // Compose runtime tracing touches android.os.Trace in local JVM tests.
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
     }
 
     compileOptions {
@@ -70,6 +75,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
 
@@ -77,6 +83,19 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     // 全局 registry/config/lifecycle/spec proxy 会在用例间 reset，必须单 fork 顺序执行。
     maxParallelForks = 1
     systemProperty("junit.jupiter.execution.parallel.enabled", "false")
+}
+
+kover {
+    reports {
+        variant("debug") {
+            verify {
+                onCheck = true
+                rule("All production lines are covered") {
+                    maxBound(0, CoverageUnit.LINE, AggregationType.MISSED_COUNT)
+                }
+            }
+        }
+    }
 }
 
 mavenPublishing {

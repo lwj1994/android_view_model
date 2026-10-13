@@ -3,6 +3,7 @@
 [![Latest release](https://img.shields.io/github/v/release/lwj1994/android_view_model?label=release)](https://github.com/lwj1994/android_view_model/releases/latest)
 [![JitPack](https://jitpack.io/v/lwj1994/android_view_model.svg)](https://jitpack.io/#lwj1994/android_view_model)
 [![Android checks](https://github.com/lwj1994/android_view_model/actions/workflows/android-ci.yml/badge.svg?branch=main)](https://github.com/lwj1994/android_view_model/actions/workflows/android-ci.yml)
+[![codecov](https://codecov.io/gh/lwj1994/android_view_model/branch/main/graph/badge.svg)](https://app.codecov.io/gh/lwj1994/android_view_model)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
 > Changelog: [CHANGELOG](./CHANGELOG.md) · Releases: [GitHub Releases](https://github.com/lwj1994/android_view_model/releases)
@@ -848,3 +849,34 @@ Run tests with:
 ```bash
 ./gradlew :android-view-model:testDebugUnitTest --no-parallel --max-workers=1
 ```
+
+Generate coverage reports and verify 100% line coverage for the library with:
+
+```bash
+./gradlew :android-view-model:koverXmlReportDebug \
+  :android-view-model:koverHtmlReportDebug \
+  :android-view-model:koverVerifyDebug \
+  --no-parallel --max-workers=1
+```
+
+These tasks run debug unit tests with the same single-fork configuration and
+write HTML to `android-view-model/build/reports/kover/htmlDebug/index.html` and
+JaCoCo-compatible XML to `android-view-model/build/reports/kover/reportDebug.xml`.
+[Kover](https://github.com/Kotlin/kotlinx-kover) tracks Kotlin inline functions at
+their call sites. The report includes all library production sources, including
+Android and Compose hosts, with no class or package exclusions. The example
+module is outside this report.
+
+The verification task fails if even one production line is uncovered, and also
+runs as part of `check`. Branch coverage is reported separately; the 100% gate
+applies to lines. Android host contracts run with Robolectric at API 28; Compose
+runtime tests exercise ownership, recomposition, selectors, and disposal.
+
+The Android checks workflow generates and uploads the XML report to
+[Codecov](https://app.codecov.io/gh/lwj1994/android_view_model) on pull requests
+and pushes to `main`. Reports are also kept in the `android-check-reports`
+workflow artifact. Activate the repository in Codecov before the first upload.
+The workflow uses [GitHub OIDC authentication](https://github.com/codecov/codecov-action#using-oidc),
+so no `CODECOV_TOKEN` secret is needed for pushes or same-repository pull requests.
+Fork pull requests use Codecov's tokenless uploads for public repositories.
+Upload failures fail the CI job.

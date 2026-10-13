@@ -106,6 +106,8 @@ skills/android-view-model/                        AI skill
   sharding, or concurrent runners: registry, config, lifecycle, reset, and spec
   proxy state are process-wide.
 - Keep `maxParallelForks = 1` in `android-view-model/build.gradle.kts`.
+- Keep all library production sources in Kover coverage. `koverVerifyDebug`
+  requires zero uncovered lines; branch coverage is reported separately.
 - Put ViewModel constructors inside `viewModelSpec` builders. Do not directly
   construct managed ViewModels in test bodies or `setUp()`.
 - Do not store resolved ViewModels in test fields. Use
@@ -116,6 +118,9 @@ skills/android-view-model/                        AI skill
 
 ```bash
 ./gradlew :android-view-model:testDebugUnitTest \
+  :android-view-model:koverXmlReportDebug \
+  :android-view-model:koverHtmlReportDebug \
+  :android-view-model:koverVerifyDebug \
   :android-view-model:assembleDebug \
   :android-view-model:lintDebug \
   --no-parallel --max-workers=1
