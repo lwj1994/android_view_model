@@ -6,6 +6,7 @@ internal class InstanceHandle<Value : Any>(
     value: Value,
     val arg: InstanceArg,
     val index: Int,
+    bindOnCreate: Boolean = true,
 ) {
     var value: Value? = value
         private set
@@ -14,6 +15,7 @@ internal class InstanceHandle<Value : Any>(
     private val directBindingSources = mutableMapOf<String, Any>()
     private val listeners = linkedMapOf<String, (InstanceHandle<Value>) -> Unit>()
     private var disposed = false
+    private var pendingOwnerChange: (() -> Unit)? = null
     val isDisposed: Boolean
         get() = disposed
 
@@ -25,7 +27,7 @@ internal class InstanceHandle<Value : Any>(
 
     init {
         notifyCreate()
-        bind(arg.bindingId)
+        if (bindOnCreate) bind(arg.bindingId)
     }
 
     fun requireInstance(): Value = value ?: throw ViewModelError(
@@ -39,7 +41,7 @@ internal class InstanceHandle<Value : Any>(
         directBindingSources.containsKey(bindingId)
 
     fun bind(id: String?) {
-        if (id == null || disposed) return
+        if (id == null || disposed || isRecycling) return
         val source = directBindingSources.getOrPut(id) { Any() }
         bindFrom(id, source)
     }
@@ -48,7 +50,7 @@ internal class InstanceHandle<Value : Any>(
         id: String?,
         source: Any,
     ) {
-        if (id == null || disposed) return
+        if (id == null || disposed || isRecycling) return
         val sources = bindingSources.getOrPut(id) { identitySet() }
         if (!sources.add(source)) return
         if (sources.size == 1) notifyBind(id)
@@ -57,6 +59,38 @@ internal class InstanceHandle<Value : Any>(
     fun unbind(id: String) {
         val source = directBindingSources.remove(id) ?: return
         unbindFrom(id, source)
+    }
+
+    /** Commits both ownership views before lifecycle hooks or owner listeners run. */
+    fun bindOwner(owner: ViewModelBinding, source: Any? = null) {
+        if (disposed || isRecycling || owner.isDisposed) {
+            throw ViewModelError("Cannot bind a disposed owner or instance.")
+        }
+        val token = source ?: directBindingSources.getOrPut(owner.id) { Any() }
+        val sources = bindingSources.getOrPut(owner.id) { identitySet() }
+        val first = sources.add(token) && sources.size == 1
+        val publish = (value as? ViewModel)?.refHandler?.addRef(
+            owner, source = source ?: owner, notify = false,
+        )
+        if (first) notifyBind(owner.id)
+        publish?.invoke()
+    }
+
+    /** Releases one source without removing independent or reentrant ownership. */
+    fun unbindOwner(owner: ViewModelBinding, source: Any? = null) {
+        if (disposed) return
+        val token = source ?: directBindingSources.remove(owner.id)
+        val sources = bindingSources[owner.id]
+        val removed = token != null && sources?.remove(token) == true
+        val last = removed && sources!!.isEmpty()
+        if (last) bindingSources.remove(owner.id)
+        val publish = (value as? ViewModel)?.refHandler?.removeRef(
+            owner, source = source ?: owner, notify = false,
+        )
+        publish?.invoke()
+        publishPendingOwnerChange()
+        if (last && !disposed) notifyUnbind(owner.id)
+        if (removed && bindingSources.isEmpty()) recycle()
     }
 
     fun unbindFrom(
@@ -75,13 +109,15 @@ internal class InstanceHandle<Value : Any>(
     }
 
     fun unbindAll(force: Boolean = false) {
-        if (disposed) return
+        if (disposed || isRecycling) return
         if (arg.aliveForever && !force) return
+        isRecycling = true
         val snapshot = bindingSources.keys.toList()
         bindingSources.clear()
         directBindingSources.clear()
+        pendingOwnerChange = (value as? ViewModel)?.refHandler?.clearRefs(notify = false)
         snapshot.forEach(::notifyUnbind)
-        recycle(force = force)
+        finishRecycle()
     }
 
     fun addListener(listener: (InstanceHandle<Value>) -> Unit): () -> Unit {
@@ -96,8 +132,26 @@ internal class InstanceHandle<Value : Any>(
         // Store removal and disposal callbacks run before value is cleared. A binding must
         // not serve this generation from its resolution cache during those callbacks.
         isRecycling = true
-        runInViewModelUpdateTransaction(::notifyListeners)
-        onDispose()
+        finishRecycle()
+    }
+
+    private fun publishPendingOwnerChange() {
+        val publish = pendingOwnerChange
+        pendingOwnerChange = null
+        publish?.invoke()
+    }
+
+    private fun finishRecycle() {
+        try {
+            runInViewModelUpdateTransaction {
+                // The Store listener removes this generation before owner propagation
+                // and controller refreshes can resolve a replacement generation.
+                notifyListeners()
+                publishPendingOwnerChange()
+            }
+        } finally {
+            onDispose()
+        }
     }
 
     private fun onDispose() {
@@ -120,20 +174,22 @@ internal class InstanceHandle<Value : Any>(
     }
 
     private fun notifyBind(id: String) {
-        val lifecycle = value as? InstanceLifeCycle ?: return
+        val target = value ?: return
+        val lifecycle = target as? InstanceLifeCycle ?: return
         try {
             lifecycle.onBind(arg, id)
         } catch (error: Throwable) {
-            reportViewModelError(error, ErrorType.Lifecycle, "${value!!::class.qualifiedName} onBind error")
+            reportViewModelError(error, ErrorType.Lifecycle, "${target::class.qualifiedName} onBind error")
         }
     }
 
     private fun notifyUnbind(id: String) {
-        val lifecycle = value as? InstanceLifeCycle ?: return
+        val target = value ?: return
+        val lifecycle = target as? InstanceLifeCycle ?: return
         try {
             lifecycle.onUnbind(arg, id)
         } catch (error: Throwable) {
-            reportViewModelError(error, ErrorType.Lifecycle, "${value!!::class.qualifiedName} onUnbind error")
+            reportViewModelError(error, ErrorType.Lifecycle, "${target::class.qualifiedName} onUnbind error")
         }
     }
 

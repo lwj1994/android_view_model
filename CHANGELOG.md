@@ -7,6 +7,26 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Align ownership commits with Flutter's runtime: validate dependency edges and
+  install tracking before committing handle sources and ViewModel refs through
+  one write path. Lifecycle callbacks observe committed ownership; owner lists
+  are derived from sources and skip snapshots superseded by reentrant changes.
+- Allow live bindings to resolve reentrantly during `onUnbind`. Remove old
+  subscriptions first and keep replacement registrations and dependency edges
+  independent of the cleanup still in progress.
+
+### Fixed
+
+- Roll back failed attachments without removing shared owners or subscriptions;
+  dispose unowned tentative generations even when `aliveForever` was requested.
+- Preflight all dependency edges in tag batches and roll back only newly acquired
+  registrations if a later attachment fails. Do not treat a key attachment error
+  as a cache miss eligible for tag fallback.
+- Make recursive recycle idempotent, reject ownership of recycling generations,
+  and remove old cache entries before propagated owner cleanup and host refreshes.
+
 ## [0.8.1] - 2026-10-13
 
 ### Fixed

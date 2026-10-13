@@ -699,11 +699,23 @@ Nested ViewModel delegate declarations create nothing until first accessed. Afte
   all cached generations before clearing configuration and lifecycle observers;
   nested reset attempts during teardown are ignored until that sequence ends.
 
-While `unbind` cleanup is in progress, that binding rejects ownership acquisition
-through `read`, `watch`, cached queries, and tag-batch queries with `ViewModelError`;
-its `maybe*Cached` queries return `null`. Other bindings remain usable. Parent
-update notifications wait until detachment is complete, so their callbacks can
-resolve normally and obtain the current generation.
+Ownership is committed before lifecycle callbacks run. Resolution validates the
+dependency edge, registers adjacency and disposal tracking, and commits handle
+sources and ViewModel refs before `onBind`. Owner lists are derived from source
+membership; reentrant owner changes cannot publish obsolete snapshots.
+
+`unbind` removes its registration and subscriptions before invoking callbacks.
+A live binding may resolve again inside `onUnbind`; cleanup of the old registration
+or dependency edge cannot remove the replacement. Parent update notifications wait
+until detachment finishes. Disposed bindings and generations being recycled reject
+new ownership. Recycle removes the old cache entry before propagated owner cleanup
+and host refreshes can resolve a new generation.
+
+Failed attachment rolls back only the sources acquired by that attempt. An unowned
+new generation is disposed even if its spec requested `aliveForever`; existing
+shared owners and subscriptions remain intact. Tag batches validate all dependency
+edges before attachment and roll back newly acquired registrations on failure.
+Lifecycle hook errors continue to be reported through `ViewModelConfig.onError`.
 
 There is no in-place instance replacement API. To obtain an independent instance, use a new explicit key. If replacing the shared cached generation globally is intentional, call `recycle(vm)` and access the delegated property again; the delegate resolves the new generation automatically. The cache miss creates a new handle and dependency tree; owner paths, watch/listen subscriptions, and dependency edges are not migrated from the disposed object.
 

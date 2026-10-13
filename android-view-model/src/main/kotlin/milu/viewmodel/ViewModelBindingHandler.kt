@@ -1,13 +1,17 @@
 package milu.viewmodel
 
 import androidx.annotation.MainThread
-import java.util.IdentityHashMap
 
 /** Dependency ownership and diagnostics attached to each [ViewModel]. */
 @MainThread
 public class ViewModelBindingHandler {
-    private val dependencyBindings = mutableListOf<ViewModelBinding>()
-    private val refSources = IdentityHashMap<ViewModelBinding, MutableSet<Any>>()
+    // Binding IDs are unique and immutable. One ordered ledger keeps direct-ref
+    // checks constant-time without relying on a binding's equals/hashCode overrides.
+    private class OwnerSources(val binding: ViewModelBinding) {
+        val sources = identitySet<Any>()
+    }
+    private val refSources = linkedMapOf<String, OwnerSources>()
+    private var ownerRevision = 0L
     private val ownerChangeListeners = linkedMapOf<Any, (
         owners: List<String>,
         previousPrimaryOwner: String?,
@@ -16,11 +20,11 @@ public class ViewModelBindingHandler {
 
     /** Ordered bindings that currently own this ViewModel. */
     public val owners: List<ViewModelBinding>
-        get() = dependencyBindings.toList()
+        get() = refSources.values.map { it.binding }
 
     /** Root/application owners, excluding internal parent-dependency scopes. */
     internal val externalOwners: List<ViewModelBinding>
-        get() = dependencyBindings.filterNot { it.isDependencyBinding }
+        get() = owners.filterNot { it.isDependencyBinding }
 
     /** Owners visible before the newly built parent has received its first direct ref. */
     internal val constructionExternalOwners: List<ViewModelBinding>
@@ -40,7 +44,7 @@ public class ViewModelBindingHandler {
         }
 
     internal val primaryOwner: ViewModelBinding?
-        get() = dependencyBindings.firstOrNull()
+        get() = refSources.values.firstOrNull()?.binding
 
     internal fun addOwnerChangeListener(
         listener: (List<String>, String?, String?) -> Unit,
@@ -53,38 +57,46 @@ public class ViewModelBindingHandler {
     internal fun addRef(
         binding: ViewModelBinding,
         source: Any = binding,
-    ) {
+        notify: Boolean = true,
+    ): (() -> Unit)? {
         val previousPrimaryOwner = primaryOwner?.id
-        val sources = refSources.getOrPut(binding) { identitySet() }
-        if (!sources.add(source)) return
-        if (sources.size == 1) {
-            dependencyBindings += binding
-            notifyOwnerChanges(previousPrimaryOwner)
-        }
+        val entry = refSources.getOrPut(binding.id) { OwnerSources(binding) }
+        if (!entry.sources.add(source) || entry.sources.size != 1) return null
+        return ownerChange(previousPrimaryOwner).also { if (notify) it() }
     }
 
     /** Whether this binding owns the ViewModel through its own direct source. */
     internal fun hasDirectRef(binding: ViewModelBinding): Boolean =
-        refSources[binding]?.contains(binding) == true
+        refSources[binding.id]?.sources?.contains(binding) == true
 
     internal fun removeRef(
         binding: ViewModelBinding,
         source: Any = binding,
-    ) {
+        notify: Boolean = true,
+    ): (() -> Unit)? {
         val previousPrimaryOwner = primaryOwner?.id
-        val sources = refSources[binding] ?: return
-        if (!sources.remove(source)) return
-        if (sources.isNotEmpty()) return
-        refSources.remove(binding)
-        dependencyBindings.removeAll { it === binding }
-        notifyOwnerChanges(previousPrimaryOwner)
+        val entry = refSources[binding.id] ?: return null
+        if (!entry.sources.remove(source) || entry.sources.isNotEmpty()) return null
+        refSources.remove(binding.id)
+        return ownerChange(previousPrimaryOwner).also { if (notify) it() }
+    }
+
+    internal fun clearRefs(notify: Boolean = true): (() -> Unit)? {
+        if (refSources.isEmpty()) return null
+        val previousPrimaryOwner = primaryOwner?.id
+        refSources.clear()
+        return ownerChange(previousPrimaryOwner).also { if (notify) it() }
+    }
+
+    private fun ownerChange(previousPrimaryOwner: String?): () -> Unit {
+        val revision = ++ownerRevision
+        return {
+            if (revision == ownerRevision) notifyOwnerChanges(previousPrimaryOwner, revision)
+        }
     }
 
     internal fun dispose() {
-        val previousPrimaryOwner = primaryOwner?.id
-        dependencyBindings.clear()
-        refSources.clear()
-        notifyOwnerChanges(previousPrimaryOwner)
+        clearRefs()
         ownerChangeListeners.clear()
     }
 
@@ -98,11 +110,12 @@ public class ViewModelBindingHandler {
             )
         }
 
-    private fun notifyOwnerChanges(previousPrimaryOwner: String?) {
+    private fun notifyOwnerChanges(previousPrimaryOwner: String?, revision: Long) {
         if (ownerChangeListeners.isEmpty()) return
-        val ids = dependencyBindings.map(ViewModelBinding::id)
+        val ids = owners.map(ViewModelBinding::id)
         val currentPrimaryOwner = primaryOwner?.id
         ownerChangeListeners.toList().forEach { (id, listener) ->
+            if (revision != ownerRevision) return
             if (ownerChangeListeners[id] !== listener) return@forEach
             try {
                 listener(ids, previousPrimaryOwner, currentPrimaryOwner)

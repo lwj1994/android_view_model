@@ -89,6 +89,16 @@ skills/android-view-model/                        AI skill
     establish ownership and retrieve new generations after recycle. Composable
     boundaries accept immutable render values and event callbacks, not VMs.
     `watchViewModel` observation does not travel with a shared VM reference.
+13. Managed ownership has one write path: `InstanceHandle.bindOwner/unbindOwner`.
+    Validate dependency edges and register adjacency/disposal tracking before
+    committing handle sources and ViewModel refs, then publish lifecycle and
+    owner callbacks. Derive owner lists from source membership. Reentrant cleanup
+    releases only its original registration/edge; live bindings can reacquire
+    inside `onUnbind`. Tag batches preflight every edge and roll back only newly
+    acquired registrations. Failed attachment disposes an unowned new generation
+    even with `aliveForever`, while preserving shared owners and subscriptions.
+    Mark recycling before unbind callbacks and remove the old cache entry before
+    propagated owner cleanup or refresh can resolve a replacement generation.
 
 ## Test rules
 

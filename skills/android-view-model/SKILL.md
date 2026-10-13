@@ -319,6 +319,15 @@ Invalidate cached resolutions on unbind, recycle, handle disposal, and reset,
 and clear them when the binding is disposed. Reacquire direct ownership on the
 next access after unbind, or create a new generation if the old one was disposed.
 
+Managed ownership writes go through `InstanceHandle.bindOwner/unbindOwner`.
+Validate dependency edges, register adjacency and disposal tracking, and commit
+handle sources plus ViewModel refs before lifecycle callbacks. Derive owner lists
+from source membership and suppress owner snapshots superseded by reentrant changes.
+Use a distinct token for each parent-child attachment so old cleanup cannot remove
+a replacement edge. Tag batches preflight all edges and roll back only registrations
+added by the failed attempt. An unowned tentative generation must be disposed even
+with `aliveForever`; preserve existing shared owners and subscriptions.
+
 ## Cached lookup APIs (advanced)
 
 Do not replace a stable spec with cache lookup. These APIs couple the caller to
@@ -430,13 +439,14 @@ class CheckoutViewModel : ViewModel() {
   attached subscriptions. For a parent dependency binding, also release roots
   propagated through the removed dependency edge. Preserve independent direct
   and parent paths; final-owner cleanup still respects `aliveForever`.
-- Reject reentrant `read`, `watch`, cached, and tag-batch ownership acquisition
-  only through the binding whose `unbind` cleanup is in progress, using
-  `ViewModelError`; keep its `maybe*Cached` result `null` and other bindings usable.
-  Defer parent update notifications until detachment finishes, then allow normal
-  resolution from their callbacks to restore ownership or obtain a new generation.
+- Remove the old registration and subscriptions before `onUnbind`. Allow a live
+  binding to reacquire ownership reentrantly; old cleanup must preserve replacement
+  registrations and dependency edges. Defer parent updates until detachment finishes.
+  Disposed bindings and recycling generations still reject new ownership.
 - `recycle(vm)` is a destructive global escape hatch. It removes every owner
   path and force-disposes the managed object, including `aliveForever`.
+  Mark recycling before unbind hooks; remove the old cache entry before propagated
+  owner cleanup and host refreshes. Recursive recycle of that generation is a no-op.
 - There is no in-place replacement capability. Use a new explicit key for an
   independent instance. If global replacement is intentional, call `recycle`
   and access the delegated property again. The delegate creates a new handle
