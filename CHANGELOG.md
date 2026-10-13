@@ -7,6 +7,15 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-13
+
+### Fixed
+
+- Install the pinned SDKMAN `21.0.2-open` JDK in JitPack's `before_install`
+  phase instead of relying on its `openjdk21` alias. Set `JAVA_HOME` explicitly
+  for the serial Maven-local publication command, and trust only the build
+  checkout for subsequent Git operations in the container.
+
 ## [0.8.0] - 2026-10-11
 
 ### Changed

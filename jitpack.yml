@@ -1,5 +1,10 @@
-jdk:
-  - openjdk21
+# Avoid JitPack's openjdk21 alias, which selects an unavailable SDKMAN candidate.
+before_install:
+  - git config --global --add safe.directory "$PWD"
+  - source "$HOME/.sdkman/bin/sdkman-init.sh" && sdk install java 21.0.2-open
 
 install:
-  - ./gradlew :android-view-model:publishToMavenLocal --no-daemon
+  - >-
+    export JAVA_HOME="$HOME/.sdkman/candidates/java/21.0.2-open" &&
+    ./gradlew :android-view-model:publishToMavenLocal
+    --no-daemon --no-parallel --max-workers=1
