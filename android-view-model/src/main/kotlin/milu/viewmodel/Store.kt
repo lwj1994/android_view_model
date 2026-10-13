@@ -51,7 +51,12 @@ internal class Store<Value : Any>(
         return count
     }
 
-    fun getHandle(factory: InstanceFactory<Value>): InstanceHandle<Value> {
+    fun findByKey(key: Any): InstanceHandle<Value>? = handles[key]
+
+    fun getHandle(
+        factory: InstanceFactory<Value>,
+        onResolve: ((InstanceHandle<Value>) -> Unit)? = null,
+    ): InstanceHandle<Value> {
         if (disposed) {
             throw ViewModelError("Store has been disposed.")
         }
@@ -63,9 +68,7 @@ internal class Store<Value : Any>(
         val arg = factory.arg.copy(key = realKey)
 
         handles[realKey]?.let { cached ->
-            // Direct and parent-propagated ownership may expose the same id.
-            // bind() is source-aware, so the direct path must still be recorded.
-            cached.bind(bindingId)
+            if (onResolve != null) onResolve(cached) else cached.bind(bindingId)
             return cached
         }
 
@@ -88,6 +91,7 @@ internal class Store<Value : Any>(
                 value = instance,
                 arg = arg,
                 index = nextIndex++,
+                bindOnCreate = onResolve == null,
             )
         }
         if (disposed) {
@@ -100,10 +104,20 @@ internal class Store<Value : Any>(
         handles[realKey] = created
 
         created.addListener {
-            handles.remove(realKey)
+            if (handles[realKey] === created) handles.remove(realKey)
             if (handles.isEmpty()) {
                 onStoreEmpty?.invoke()
             }
+        }
+        try {
+            onResolve?.invoke(created)
+        } catch (error: Throwable) {
+            // Only this unowned cache-miss generation is tentative, including retention.
+            // A reentrant independent owner keeps its generation and subscriptions.
+            if (!created.isDisposed && created.bindingIds.isEmpty()) {
+                created.unbindAll(force = true)
+            }
+            throw error
         }
         return created
     }

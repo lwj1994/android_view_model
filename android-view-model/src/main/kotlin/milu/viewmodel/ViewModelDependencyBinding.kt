@@ -10,7 +10,9 @@ internal class ViewModelDependencyBinding(
     override val isDependencyBinding: Boolean = true
 
     private val propagatedOwners = mutableListOf<ViewModelBinding>()
-    private val dependencies = IdentityHashMap<InstanceHandle<*>, ViewModel>()
+    // Each attachment gets a token so old cleanup cannot release a replacement edge.
+    private class DependencyEdge(val viewModel: ViewModel)
+    private val dependencies = IdentityHashMap<InstanceHandle<*>, DependencyEdge>()
     private val removeOwnerListener: () -> Unit
     private var dependencyDisposed = false
 
@@ -22,33 +24,35 @@ internal class ViewModelDependencyBinding(
         }
     }
 
-    override fun handleInstanceAttached(
+    override fun validateInstanceAttachment(
         handle: InstanceHandle<*>,
         viewModel: ViewModel,
     ) {
         requireAcyclicDependency(viewModel)
-        super.handleInstanceAttached(handle, viewModel)
-        dependencies[handle] = viewModel
-        propagatedOwners.forEach { owner -> attachOwner(handle, viewModel, owner) }
+    }
+
+    override fun handleInstanceAttached(
+        handle: InstanceHandle<*>,
+        viewModel: ViewModel,
+    ): () -> Unit {
+        val edge = DependencyEdge(viewModel)
+        dependencies[handle] = edge
+        return {
+            propagatedOwners.toList().forEach { owner -> attachOwner(handle, edge, owner) }
+        }
     }
 
     override fun handleInstanceDetached(
         handle: InstanceHandle<*>,
         viewModel: ViewModel,
-    ) {
-        dependencies.remove(handle)
+    ): () -> Unit {
+        val edge = dependencies.remove(handle)
+        val owners = propagatedOwners.toList()
         super.handleInstanceDetached(handle, viewModel)
-        propagatedOwners.toList().forEach { owner ->
-            detachOwner(handle, viewModel, owner)
+        return {
+            if (edge != null) owners.forEach { owner -> detachOwner(handle, edge, owner) }
+            notifyParentAfterDetach()
         }
-    }
-
-    override fun handleInstanceDetachmentComplete(
-        handle: InstanceHandle<*>,
-        viewModel: ViewModel,
-    ) {
-        super.handleInstanceDetachmentComplete(handle, viewModel)
-        notifyParentAfterDetach()
     }
 
     override fun onViewModelUpdate(viewModel: ViewModel) {
@@ -64,13 +68,9 @@ internal class ViewModelDependencyBinding(
         if (dependencyDisposed) return
         dependencyDisposed = true
         removeOwnerListener()
-        propagatedOwners.toList().forEach { owner ->
-            dependencies.entries.toList().forEach { (handle, viewModel) ->
-                detachOwner(handle, viewModel, owner)
-            }
-        }
-        propagatedOwners.clear()
+        // Base disposal marks the binding disposed before releasing each tracked edge.
         super.dispose()
+        propagatedOwners.clear()
         dependencies.clear()
     }
 
@@ -102,7 +102,8 @@ internal class ViewModelDependencyBinding(
         visited: MutableSet<ViewModelDependencyBinding>,
     ): Boolean {
         if (!visited.add(this)) return false
-        return dependencies.values.any { dependency ->
+        return dependencies.values.any { edge ->
+            val dependency = edge.viewModel
             dependency === target ||
                 dependency.dependencyBindingIfCreated?.reaches(target, visited) == true
         }
@@ -113,40 +114,40 @@ internal class ViewModelDependencyBinding(
         val removed = propagatedOwners.filter { owner -> currentOwners.none { it === owner } }
         val added = currentOwners.filter { owner -> propagatedOwners.none { it === owner } }
 
+        // Commit the projection before child hooks can reenter owner synchronization.
+        propagatedOwners.clear()
+        propagatedOwners += currentOwners
         removed.forEach { owner ->
-            dependencies.entries.toList().forEach { (handle, viewModel) ->
-                detachOwner(handle, viewModel, owner)
+            for ((handle, edge) in dependencies.map { it.key to it.value }) {
+                if (propagatedOwners.any { it === owner }) break
+                detachOwner(handle, edge, owner)
             }
-            propagatedOwners.removeAll { it === owner }
         }
         added.forEach { owner ->
-            propagatedOwners += owner
-            dependencies.entries.toList().forEach { (handle, viewModel) ->
-                attachOwner(handle, viewModel, owner)
+            dependencies.map { it.key to it.value }.forEach { (handle, edge) ->
+                attachOwner(handle, edge, owner)
             }
         }
     }
 
     private fun attachOwner(
         handle: InstanceHandle<*>,
-        viewModel: ViewModel,
+        edge: DependencyEdge,
         owner: ViewModelBinding,
     ) {
-        if (handle.isDisposed || viewModel.isDisposed) return
-        handle.bindFrom(owner.id, this)
-        viewModel.refHandler.addRef(owner, source = this)
+        if (
+            dependencyDisposed || handle.isDisposed || handle.isRecycling ||
+            edge.viewModel.isDisposed || owner.isDisposed ||
+            dependencies[handle] !== edge || propagatedOwners.none { it === owner }
+        ) return
+        handle.bindOwner(owner, source = edge)
     }
 
     private fun detachOwner(
         handle: InstanceHandle<*>,
-        viewModel: ViewModel,
+        edge: DependencyEdge,
         owner: ViewModelBinding,
     ) {
-        if (!viewModel.isDisposed) {
-            viewModel.refHandler.removeRef(owner, source = this)
-        }
-        if (!handle.isDisposed) {
-            handle.unbindFrom(owner.id, this)
-        }
+        handle.unbindOwner(owner, source = edge)
     }
 }

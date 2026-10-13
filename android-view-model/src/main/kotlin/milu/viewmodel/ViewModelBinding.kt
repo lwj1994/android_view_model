@@ -59,9 +59,9 @@ public open class ViewModelBinding {
     private val instanceController = AutoDisposeInstanceController(
         binding = this,
         onHandleDisposing = ::handleInstanceChange,
+        onInstanceAttaching = ::validateInstanceAttachment,
         onInstanceAttached = ::handleInstanceAttached,
         onInstanceDetached = ::handleInstanceDetached,
-        onInstanceDetachmentComplete = ::handleInstanceDetachmentComplete,
     )
 
     public val pauseController: PauseAwareController = makePauseController()
@@ -98,28 +98,28 @@ public open class ViewModelBinding {
         if (markViewModelBindingUpdated(this)) onUpdate()
     }
 
-    internal open fun handleInstanceAttached(
+    internal open fun validateInstanceAttachment(
         handle: InstanceHandle<*>,
         viewModel: ViewModel,
     ) {}
 
+    internal open fun handleInstanceAttached(
+        handle: InstanceHandle<*>,
+        viewModel: ViewModel,
+    ): (() -> Unit)? = null
+
     internal open fun handleInstanceDetached(
         handle: InstanceHandle<*>,
         viewModel: ViewModel,
-    ) {
+    ): (() -> Unit)? {
         watchedViewModels.remove(viewModel)?.invoke()
         resolvedHandles.entries.removeAll { it.value === handle }
         subscriptions.filter { it.isAttachedTo(viewModel) }.toList().forEach { subscription ->
             subscription.dispose()
             subscriptions.remove(subscription)
         }
+        return null
     }
-
-    /** Called after tracker, subscriptions and direct ownership have been released. */
-    internal open fun handleInstanceDetachmentComplete(
-        handle: InstanceHandle<*>,
-        viewModel: ViewModel,
-    ) {}
 
     public open fun onUpdate() {
         assertMainThread()
@@ -334,7 +334,7 @@ public open class ViewModelBinding {
     /**
      * Releases this binding's direct ownership and subscriptions. Other owner paths remain;
      * the next [read] or [watch] establishes direct ownership again through normal resolution.
-     * New ownership on this binding is rejected while unbind cleanup is in progress.
+     * Reentrant resolution establishes a new registration that old cleanup cannot remove.
      */
     public fun <VM : ViewModel> unbind(viewModel: VM) {
         assertMainThread()
@@ -404,9 +404,6 @@ public open class ViewModelBinding {
             throw ViewModelError(
                 "Cannot get ${factory.modelClass.qualifiedName}: binding is disposed.",
             )
-        }
-        if (instanceController.isUnbinding) {
-            throw ViewModelError("Cannot resolve ViewModels while this binding is unbinding.")
         }
         val configuredKey = factory.key()
         val aliveForever = factory.aliveForever()

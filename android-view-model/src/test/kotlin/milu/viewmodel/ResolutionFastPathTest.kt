@@ -363,14 +363,15 @@ class ResolutionFastPathTest {
         val earlierBinding = ViewModelBinding {
             duringDisposal = laterBinding.read(spec)
         }
-        var reboundBeforeDisposal = false
+        var attemptedDuringRecycle = false
+        var rejectedDuringRecycle: Throwable? = null
         val removeLifecycle = ViewModel.addLifecycle(object : ViewModelLifecycle {
             override fun onUnbind(viewModel: ViewModel, arg: InstanceArg, bindingId: String) {
-                if (bindingId == earlierBinding.id && !reboundBeforeDisposal) {
-                    // Global recycle clears direct sources before notifying lifecycle hooks.
-                    // Re-reading here can restore a source before disposal listeners begin.
-                    reboundBeforeDisposal = true
-                    laterBinding.read(spec)
+                if (bindingId == earlierBinding.id && !attemptedDuringRecycle) {
+                    // Recycle marks the generation before hooks; it cannot regain owners
+                    // while it is still cached, before the disposal listeners begin.
+                    attemptedDuringRecycle = true
+                    rejectedDuringRecycle = runCatching { laterBinding.read(spec) }.exceptionOrNull()
                 }
             }
         })
@@ -381,7 +382,8 @@ class ResolutionFastPathTest {
             earlierBinding.recycle(original)
 
             val replacement = requireNotNull(duringDisposal)
-            assertTrue(reboundBeforeDisposal)
+            assertTrue(attemptedDuringRecycle)
+            assertTrue(rejectedDuringRecycle is ViewModelError)
             assertTrue(original.isDisposed)
             assertNotSame(original, replacement)
             assertFalse(replacement.isDisposed)

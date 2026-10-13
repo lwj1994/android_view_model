@@ -52,7 +52,7 @@ class UnbindLifecycleRegressionTest {
     }
 
     @Test
-    fun dependencyOnUnbind_rejectsEverySameBindingQueryAndNestedUnbindUntilComplete() {
+    fun dependencyOnUnbind_allowsReacquisitionAndNestedUnbindWithoutLosingTheNewEdge() {
         val owner = ViewModelBinding()
         try {
             var onChildUnbind: ((String) -> Unit)? = null
@@ -75,6 +75,7 @@ class UnbindLifecycleRegressionTest {
             )
             onChildUnbind = { bindingId ->
                 if (bindingId == dependencyBinding.id) {
+                    onChildUnbind = null
                     attempts.forEach { attempt ->
                         failures += runCatching(attempt).exceptionOrNull()
                     }
@@ -84,9 +85,9 @@ class UnbindLifecycleRegressionTest {
             dependencyBinding.unbind(original)
 
             assertEquals(attempts.size, failures.size)
-            assertTrue(failures.all { it is ViewModelError })
+            assertTrue(failures.all { it == null })
             assertTrue(original.isDisposed)
-            assertEquals(1, parent.notifications)
+            assertEquals(2, parent.notifications)
             onChildUnbind = null
             val replacement = parent.child
             assertNotSame(original, replacement)
@@ -99,7 +100,7 @@ class UnbindLifecycleRegressionTest {
     }
 
     @Test
-    fun descendantOnUnbind_cannotResolveTheParentThroughItsUnbindingOwner() {
+    fun descendantOnUnbind_canReacquireTheParentThroughItsLiveOwner() {
         val owner = ViewModelBinding()
         try {
             var onChildUnbind: ((String) -> Unit)? = null
@@ -122,14 +123,15 @@ class UnbindLifecycleRegressionTest {
             owner.unbind(originalParent)
 
             assertEquals(1, attempts)
-            assertTrue(failure is ViewModelError)
+            assertEquals(null, failure)
+            assertFalse(originalParent.isDisposed)
+            assertFalse(originalChild.isDisposed)
+            onChildUnbind = null
+            assertSame(originalParent, parent)
+            assertTrue(parent.child.refHandler.owners.any { it === owner })
+            owner.dispose()
             assertTrue(originalParent.isDisposed)
             assertTrue(originalChild.isDisposed)
-            onChildUnbind = null
-            val replacement = parent
-            assertNotSame(originalParent, replacement)
-            assertFalse(replacement.isDisposed)
-            assertTrue(replacement.child.refHandler.owners.any { it === owner })
         } finally {
             owner.dispose()
         }

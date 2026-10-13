@@ -38,6 +38,7 @@ public object InstanceManager {
     internal fun <Value : Any> getHandle(
         type: InstanceType<Value>,
         factory: InstanceFactory<Value>? = null,
+        onResolve: ((InstanceHandle<Value>) -> Unit)? = null,
     ): InstanceHandle<Value> {
         assertMainThread()
         requireNotResetting()
@@ -58,14 +59,14 @@ public object InstanceManager {
                         aliveForever = found.arg.aliveForever,
                     ),
                 )
-                return store.getHandle(extendFactory)
+                return store.getHandle(extendFactory, onResolve)
             }
+            onResolve?.invoke(found)
             return found
         }
         if (factory.builder == null && factory.arg.key != null && factory.arg.tag != null) {
-            return try {
-                store.getHandle(factory)
-            } catch (_: ViewModelError) {
+            // Only a key miss permits tag fallback; attachment errors must propagate.
+            if (store.findByKey(factory.arg.key) == null) {
                 val found = store.findNewest(tag = factory.arg.tag)
                     ?: throw ViewModelError("no ${type.description} instance found")
                 if (ViewModel.config.isDebugMode) {
@@ -82,12 +83,14 @@ public object InstanceManager {
                                 aliveForever = found.arg.aliveForever,
                             ),
                         ),
+                        onResolve,
                     )
                 }
-                found
+                onResolve?.invoke(found)
+                return found
             }
         }
-        return store.getHandle(factory)
+        return store.getHandle(factory, onResolve)
     }
 
     internal fun <Value : Any> getHandlesByTag(
