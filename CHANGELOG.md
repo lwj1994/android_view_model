@@ -7,6 +7,15 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Generate Kover XML and HTML coverage reports for debug unit tests, enforce
+  100% production line coverage, and upload coverage to Codecov from the serial
+  Android checks workflow.
+- Cover Android host lifetimes with Robolectric and extend contract tests for
+  Compose ownership, spec arities, legacy JVM defaults, error isolation, storage,
+  process-state ordering, and reentrant pause subscriptions.
+
 ### Changed
 
 - Align ownership commits with Flutter's runtime: validate dependency edges and
