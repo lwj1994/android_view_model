@@ -140,7 +140,7 @@ internal class InstanceHandle<Value : Any>(
         if (disposed || isRecycling) return
         // 普通解绑仍允许 onUnbind 重获 owner，派发后再决定是否销毁。
         publishPendingUnbinds()
-        if (disposed || isRecycling || bindingSources.isNotEmpty()) return
+        if (disposed || bindingSources.isNotEmpty()) return
         // Store removal and disposal callbacks run before value is cleared. A binding must
         // not serve this generation from its resolution cache during those callbacks.
         isRecycling = true

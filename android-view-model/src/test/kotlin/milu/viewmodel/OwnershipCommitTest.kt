@@ -204,6 +204,76 @@ class OwnershipCommitTest {
     }
 
     @Test
+    fun pendingParentOnUnbindCanForceRecycleDuringAutomaticRecycle() {
+        lateinit var releasing: CommitOwner
+        val parentSpec = spec("parent", unbound = { vm, id ->
+            if (id == releasing.id) releasing.recycle(vm)
+        })
+        val keeper = owner(parentSpec)
+        releasing = owner(parentSpec)
+        val childSpec = spec("child", unbound = { _, id ->
+            if (id == releasing.id) keeper.unbind(keeper.vm)
+        })
+        keeper.vm.child(childSpec)
+        val generation = releasing.watched
+        events.clear()
+
+        releasing.unbind(generation)
+
+        assertTrue(generation.isDisposed)
+        assertNull(ViewModel.maybeReadCached<CommitNode>(key = "parent"))
+        assertEquals(1, events.count { it == "unbind:parent:${releasing.id}" })
+        assertEquals(1, events.count { it == "unbind:parent:${keeper.id}" })
+        assertEquals(1, events.count { it == "dispose:parent" })
+        assertEquals(1, events.count { it == "cleanup:parent" })
+        assertTrue(events.indexOf("unbind:parent:${releasing.id}") < events.indexOf("dispose:parent"))
+    }
+
+    @Test
+    fun pendingParentOnUnbindCanInvalidateALaterReleaseInTheSameSnapshot() {
+        lateinit var first: CommitOwner
+        lateinit var second: CommitOwner
+        lateinit var last: CommitOwner
+        val parentSpec = spec("parent", unbound = { _, id ->
+            if (id == first.id) second.watched
+        })
+        first = owner(parentSpec)
+        second = owner(parentSpec)
+        last = owner(parentSpec)
+        var cascade = true
+        val childSpec = spec("child", unbound = { _, id ->
+            if (cascade) when (id) {
+                first.id -> second.unbind(second.vm)
+                second.id -> {
+                    cascade = false
+                    last.unbind(last.vm)
+                }
+            }
+        })
+        first.vm.child(childSpec)
+        second.watched
+        last.vm
+        val generation = first.vm
+        events.clear()
+
+        first.unbind(generation)
+
+        assertFalse(generation.isDisposed)
+        assertTrue(generation === second.vm)
+        assertEquals(listOf(second), generation.refHandler.owners)
+        assertEquals(listOf(second.id), handle("parent").bindingIds)
+        assertEquals(1, events.count { it == "unbind:parent:${first.id}" })
+        assertEquals(1, events.count { it == "unbind:parent:${last.id}" })
+        assertEquals(0, events.count { it == "unbind:parent:${second.id}" })
+        generation.notifyListeners()
+        assertEquals(1, second.updates)
+        second.dispose()
+        assertTrue(generation.isDisposed)
+        assertEquals(1, events.count { it == "unbind:parent:${second.id}" })
+        assertEquals(1, events.count { it == "dispose:parent" })
+    }
+
+    @Test
     fun onBindCanWatchTheSameGenerationReentrantly() {
         lateinit var owner: CommitOwner
         var sameGeneration = false

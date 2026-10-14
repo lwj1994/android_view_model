@@ -97,8 +97,10 @@ skills/android-view-model/                        AI skill
     inside `onUnbind`. Tag batches preflight every edge and roll back only newly
     acquired registrations. Failed attachment disposes an unowned new generation
     even with `aliveForever`, while preserving shared owners and subscriptions.
-    Mark recycling before unbind callbacks and remove the old cache entry before
-    propagated owner cleanup or refresh can resolve a replacement generation.
+    Forced recycling marks the generation before unbind callbacks. Automatic
+    recycling first delivers pending ordinary unbind callbacks and rechecks
+    ownership so those callbacks can reacquire the generation. Remove the old
+    cache entry before propagated owner cleanup or refresh can resolve a replacement.
 
 ## Test rules
 
@@ -108,6 +110,9 @@ skills/android-view-model/                        AI skill
 - Keep `maxParallelForks = 1` in `android-view-model/build.gradle.kts`.
 - Keep all library production sources in Kover coverage. `koverVerifyDebug`
   requires zero uncovered lines; branch coverage is reported separately.
+  Codecov receives a separate XML copy with only zero-instruction,
+  zero-branch line placeholders removed. Preserve real misses, partial coverage,
+  all counters, and the original Kover report used for verification.
 - Put ViewModel constructors inside `viewModelSpec` builders. Do not directly
   construct managed ViewModels in test bodies or `setUp()`.
 - Do not store resolved ViewModels in test fields. Use
@@ -117,6 +122,7 @@ skills/android-view-model/                        AI skill
 ## Verification
 
 ```bash
+python3 -m unittest discover -s .github/scripts/tests -v
 ./gradlew :android-view-model:testDebugUnitTest \
   :android-view-model:koverXmlReportDebug \
   :android-view-model:koverHtmlReportDebug \
@@ -127,6 +133,10 @@ skills/android-view-model/                        AI skill
 ```
 
 Do not add `--parallel`.
+
+When reporting CI, verify both GitHub Actions/check runs and the exact commit's
+`codecov/project` and `codecov/patch` statuses. A successful coverage upload only
+confirms submission; Codecov evaluates its coverage gates asynchronously.
 
 ## Release process
 

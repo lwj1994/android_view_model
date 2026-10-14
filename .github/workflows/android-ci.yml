@@ -21,6 +21,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - name: Test coverage report compatibility
+        run: python3 -m unittest discover -s .github/scripts/tests -v
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -43,12 +45,17 @@ jobs:
           bash ./gradlew :android-view-model:testReleaseUnitTest
           --tests milu.viewmodel.CachedLookupContractTest
           --no-parallel --max-workers=1 --stacktrace
+      - name: Prepare Codecov upload report
+        run: >-
+          python3 .github/scripts/normalize_kover_for_codecov.py
+          android-view-model/build/reports/kover/reportDebug.xml
+          --output android-view-model/build/reports/kover/reportDebug-codecov.xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           # Fork pull requests use Codecov's public-repository tokenless upload.
           use_oidc: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-          files: android-view-model/build/reports/kover/reportDebug.xml
+          files: android-view-model/build/reports/kover/reportDebug-codecov.xml
           disable_search: true
           fail_ci_if_error: true
       - name: Upload verification reports

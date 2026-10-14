@@ -7,6 +7,14 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Cover forced disposal and superseded owner releases during pending unbind
+  delivery, and remove a redundant recycling check after synchronous disposal.
+- Prevent Codecov from counting Kover's zero-instruction, zero-branch line
+  placeholders as missed code. Preserve the original line-coverage gate and all
+  real branch coverage in the uploaded report.
+
 ## [0.8.2] - 2026-10-14
 
 ### Added
