@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-14
+
 ### Added
 
 - Generate Kover XML and HTML coverage reports for debug unit tests, enforce
@@ -28,6 +30,9 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Track pending final unbinds by release identity so reentrant child callbacks
+  cannot duplicate or suppress parent `onUnbind` events. Preserve callbacks before
+  forced disposal and allow reacquisition before automatic disposal begins.
 - Roll back failed attachments without removing shared owners or subscriptions;
   dispose unowned tentative generations even when `aliveForever` was requested.
 - Preflight all dependency edges in tag batches and roll back only newly acquired

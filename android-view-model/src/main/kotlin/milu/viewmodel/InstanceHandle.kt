@@ -13,6 +13,7 @@ internal class InstanceHandle<Value : Any>(
 
     private val bindingSources = linkedMapOf<String, MutableSet<Any>>()
     private val directBindingSources = mutableMapOf<String, Any>()
+    private val pendingUnbinds = linkedMapOf<String, Any>()
     private val listeners = linkedMapOf<String, (InstanceHandle<Value>) -> Unit>()
     private var disposed = false
     private var pendingOwnerChange: (() -> Unit)? = null
@@ -53,6 +54,7 @@ internal class InstanceHandle<Value : Any>(
         if (id == null || disposed || isRecycling) return
         val sources = bindingSources.getOrPut(id) { identitySet() }
         if (!sources.add(source)) return
+        pendingUnbinds.remove(id)
         if (sources.size == 1) notifyBind(id)
     }
 
@@ -69,6 +71,7 @@ internal class InstanceHandle<Value : Any>(
         val token = source ?: directBindingSources.getOrPut(owner.id) { Any() }
         val sources = bindingSources.getOrPut(owner.id) { identitySet() }
         val first = sources.add(token) && sources.size == 1
+        pendingUnbinds.remove(owner.id)
         val publish = (value as? ViewModel)?.refHandler?.addRef(
             owner, source = source ?: owner, notify = false,
         )
@@ -84,12 +87,18 @@ internal class InstanceHandle<Value : Any>(
         val removed = token != null && sources?.remove(token) == true
         val last = removed && sources!!.isEmpty()
         if (last) bindingSources.remove(owner.id)
+        val pendingUnbind = if (last) Any() else null
+        if (pendingUnbind != null) pendingUnbinds[owner.id] = pendingUnbind
         val publish = (value as? ViewModel)?.refHandler?.removeRef(
             owner, source = source ?: owner, notify = false,
         )
         publish?.invoke()
         publishPendingOwnerChange()
-        if (last && !disposed) notifyUnbind(owner.id)
+        // 传播回调可能重绑后再次解绑；旧释放不得重复派发新一轮的 onUnbind。
+        if (pendingUnbind != null && pendingUnbinds[owner.id] === pendingUnbind) {
+            pendingUnbinds.remove(owner.id)
+            notifyUnbind(owner.id)
+        }
         if (removed && bindingSources.isEmpty()) recycle()
     }
 
@@ -129,6 +138,9 @@ internal class InstanceHandle<Value : Any>(
     private fun recycle(force: Boolean = false) {
         if (arg.aliveForever && !force) return
         if (disposed || isRecycling) return
+        // 普通解绑仍允许 onUnbind 重获 owner，派发后再决定是否销毁。
+        publishPendingUnbinds()
+        if (disposed || isRecycling || bindingSources.isNotEmpty()) return
         // Store removal and disposal callbacks run before value is cleared. A binding must
         // not serve this generation from its resolution cache during those callbacks.
         isRecycling = true
@@ -143,6 +155,8 @@ internal class InstanceHandle<Value : Any>(
 
     private fun finishRecycle() {
         try {
+            // 传播中提前 recycle/reset 时，在 Store 移除和销毁前补齐最终解绑。
+            publishPendingUnbinds()
             runInViewModelUpdateTransaction {
                 // The Store listener removes this generation before owner propagation
                 // and controller refreshes can resolve a replacement generation.
@@ -154,6 +168,15 @@ internal class InstanceHandle<Value : Any>(
         }
     }
 
+    private fun publishPendingUnbinds() {
+        pendingUnbinds.toList().forEach { (id, token) ->
+            // 前一项回调可能重绑或强制销毁，跳过已失效的快照。
+            if (pendingUnbinds[id] !== token) return@forEach
+            pendingUnbinds.remove(id)
+            notifyUnbind(id)
+        }
+    }
+
     private fun onDispose() {
         if (disposed) return
         disposed = true
@@ -161,6 +184,7 @@ internal class InstanceHandle<Value : Any>(
         value = null
         bindingSources.clear()
         directBindingSources.clear()
+        pendingUnbinds.clear()
         listeners.clear()
     }
 
