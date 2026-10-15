@@ -5,6 +5,15 @@ All notable changes to AndroidViewModel will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-10-15
+
+### Removed
+
+- Remove `ViewModelParameterizedSpecKey`: ordinary parameterized specs may omit
+  a key without a warning. Keep the four remaining bundled checks, including
+  the explicit key requirement for `aliveForever`.
+- Update the English lint guide and recommended skill configuration.
+
 ## [0.9.0] - 2026-10-15
 
 ### Added

@@ -52,11 +52,21 @@ class ViewModelDetectorTest : LintDetectorTest() {
                 fun direct() = Child()
             }
         """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run()
-            .expectWarningCount(5)
+            .expectWarningCount(4)
             .expectContains("[ViewModelAliveForeverKey]")
-            .expectContains("[ViewModelParameterizedSpecKey]")
             .expectContains("[ViewModelCachedInstance]")
             .expectContains("[ViewModelUnmanagedConstruction]")
+    }
+
+    fun testUnkeyedParameterizedSpecsAreAllowed() {
+        lint().files(api, kotlin("""
+            package test
+            import milu.viewmodel.*
+            class Child : ViewModel()
+            val omitted = viewModelSpecWithArg<Child, Int>(builder = { Child() })
+            val nullKey = ViewModelSpecWithArg<Child, Int>(builder = { Child() }, key = null)
+            val nullCallback = viewModelSpecWithArg<Child, Int>(builder = { Child() }, key = { null })
+        """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run().expectClean()
     }
 
     fun testValidBuildersGettersDelegatesAndLocals() {
@@ -115,7 +125,7 @@ class ViewModelDetectorTest : LintDetectorTest() {
                 builder = { Child() }, key = { null }, aliveForever = { true })
             val wrong = viewModelSpec(key = Child()) { Child() }
         """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run()
-            .expectWarningCount(3)
+            .expectWarningCount(2)
     }
 
     fun testFieldAssignmentAndUnrelatedNames() {
@@ -196,7 +206,7 @@ class ViewModelDetectorTest : LintDetectorTest() {
             package test
             import milu.viewmodel.*
             @Suppress("ViewModelUnmanagedConstruction", "ViewModelCachedInstance",
-                "ViewModelAliveForeverKey", "ViewModelParameterizedSpecKey", "ViewModelDependencyCycle")
+                "ViewModelAliveForeverKey", "ViewModelDependencyCycle")
             class Child : ViewModel() {
                 val spec = viewModelSpec(aliveForever = true) { Child() }
                 val direct = Child()

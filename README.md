@@ -90,7 +90,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:0.9.0")
+    implementation("com.github.lwj1994:android_view_model:0.9.1")
 }
 ```
 
@@ -318,7 +318,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:0.9.0")
+    implementation("android_view_model:android-view-model:0.9.1")
 }
 ```
 
@@ -329,7 +329,10 @@ This avoids Maven for this library itself. `google()` and `mavenCentral()` are s
 
 ## Recommended Android Lint checks
 
-Version 0.9.0 and later bundle five custom checks in the library AAR
+Ordinary parameterized specs may omit `key` without a warning. Use an argument-derived
+key when separate instances are intended. `aliveForever` still requires an explicit key.
+
+Version 0.9.1 and later bundle four custom checks in the library AAR
 through `lintPublish`. Recommend keeping them enabled in application and business
 modules and running Android Lint in CI. No runtime initialization or additional
 `lintChecks` dependency is needed when consuming an AAR containing `lint.jar`.
@@ -338,7 +341,7 @@ modules and running Android Lint in CI. No runtime initialization or additional
 ./gradlew :app:lintDebug --no-parallel --max-workers=1
 ```
 
-Android Studio can also surface these diagnostics during code analysis. All five
+Android Studio can also surface these diagnostics during code analysis. All four
 issues default to warning:
 
 | Issue ID | Meaning and recommended fix |
@@ -347,18 +350,17 @@ issues default to warning:
 | `ViewModelCachedInstance` | A field, assignment, or `by lazy` retains a resolved VM. Use `by readViewModel/watchViewModel` with the owner's binding. |
 | `ViewModelAliveForeverKey` | A literal true `aliveForever` value/callback has no explicit non-null key. Supply the key. |
 | `ViewModelUnmanagedConstruction` | A VM is constructed outside a spec builder or `ViewModelFactory.build`. Resolve a stable spec through a binding. |
-| `ViewModelParameterizedSpecKey` | A parameterized spec has no key. Use an argument-derived key when distinct instances are intended. |
 
 Use a module's `lint.xml` to disable only an intentional exception:
 
 ```xml
 <lint>
-    <issue id="ViewModelParameterizedSpecKey" severity="ignore" />
+    <issue id="ViewModelCachedInstance" severity="ignore" />
 </lint>
 ```
 
-For a local exception, prefer `@Suppress("ViewModelParameterizedSpecKey")` with
-a comment explaining deliberate per-binding reuse. Standard Android Lint
+For a local exception, prefer `@Suppress("ViewModelCachedInstance")` with
+a comment explaining the exception. Standard Android Lint
 severity overrides and baselines remain available. Teams can promote selected
 warnings to errors in `lint.xml` or use `warningsAsErrors` in their lint DSL.
 

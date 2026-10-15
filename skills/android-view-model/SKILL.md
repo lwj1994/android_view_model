@@ -640,17 +640,19 @@ fun tearDown() {
 
 ## Recommended usage lint
 
-Recommend keeping the five bundled ViewModel checks enabled for consumer app
-and business modules. Version 0.9.0 and later bundle the checks in `lint.jar`
+Ordinary parameterized specs may omit `key` without a warning. Use an argument-derived
+key when separate instances are intended. `aliveForever` still requires an explicit key.
+
+Recommend keeping the four bundled ViewModel checks enabled for consumer app
+and business modules. Version 0.9.1 and later bundle the checks in `lint.jar`
 inside the AAR. Do not add analyzer classes to
 app runtime dependencies or require a separate `lintChecks` dependency for a
 bundled AAR. Run the consumer's `./gradlew :app:lintDebug --no-parallel
 --max-workers=1` in CI and use Android Studio analysis during development.
 
 Warnings cover `ViewModelDependencyCycle`, `ViewModelCachedInstance`,
-`ViewModelAliveForeverKey`, `ViewModelUnmanagedConstruction`, and
-`ViewModelParameterizedSpecKey`. Prefer `by readViewModel/watchViewModel`, stable
-spec builders, and explicit keys only when retention/sharing/identity needs them.
+`ViewModelAliveForeverKey`, and `ViewModelUnmanagedConstruction`. Prefer
+`by readViewModel/watchViewModel`, stable spec builders, and explicit keys only when retention/sharing/identity needs them.
 Do not add keys to every ordinary module just to silence a warning.
 
 For deliberately unkeyed argument reuse, disable only the relevant rule in the
@@ -658,11 +660,11 @@ consumer module's `lint.xml`:
 
 ```xml
 <lint>
-    <issue id="ViewModelParameterizedSpecKey" severity="ignore" />
+    <issue id="ViewModelCachedInstance" severity="ignore" />
 </lint>
 ```
 
-A local `@Suppress("ViewModelParameterizedSpecKey")` with a reason is preferable
+A local `@Suppress("ViewModelCachedInstance")` with a reason is preferable
 when the exception is limited to one declaration. These are warnings by default;
 use standard Android Lint severity settings when CI should fail on them.
 Cycle diagnostics describe static own-binding type cycles within the analyzed

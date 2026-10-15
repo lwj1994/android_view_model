@@ -14,7 +14,6 @@ EXPECTED = {
     "ViewModelCachedInstance",
     "ViewModelAliveForeverKey",
     "ViewModelUnmanagedConstruction",
-    "ViewModelParameterizedSpecKey",
 }
 
 
@@ -60,7 +59,9 @@ class ProbeOwner {
             missing = EXPECTED - reported
             if missing:
                 raise AssertionError(f"Consumer did not discover lint checks: {sorted(missing)}")
-            print("Verified all five bundled ViewModel diagnostics in the consumer.")
+            if "ViewModelParameterizedSpecKey" in reported:
+                raise AssertionError("Unkeyed parameterized specs must not warn")
+            print("Verified all four bundled ViewModel diagnostics in the consumer.")
     finally:
         # Leave generated reports consistent with the original example sources.
         gradle(":example:lintDebug")

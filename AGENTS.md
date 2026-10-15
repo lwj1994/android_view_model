@@ -105,7 +105,7 @@ android-view-model-lint/                          Bundled Android Lint checks
 
 ## Test rules
 
-- Recommend the five bundled ViewModel lint checks for consumer modules. Keep
+- Recommend the four bundled ViewModel lint checks for consumer modules. Keep
   `lintPublish` wired into the runtime AAR, with only compile-only dependencies
   in the lint module. Run `:android-view-model-lint:test` and `:example:lintDebug`
   when changing lint. Diagnostics are warnings and individually configurable

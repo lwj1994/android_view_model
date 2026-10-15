@@ -93,13 +93,6 @@ class ViewModelDetector : Detector(), SourceCodeScanner {
                 "aliveForever is true without an explicit non-null key; managed resolution requires a key.",
             )
         }
-        val name = if (method.isConstructor) method.containingClass?.name else method.name
-        if (name?.contains("WithArg") == true) {
-            context.report(
-                ARG_KEY, call, context.getLocation(call),
-                "An unkeyed parameterized spec reuses one instance per type and binding; add an argument-derived key when distinct instances are intended.",
-            )
-        }
     }
 
     private fun isViewModel(context: JavaContext, type: PsiClass?): Boolean = type != null &&
@@ -252,8 +245,6 @@ class ViewModelDetector : Detector(), SourceCodeScanner {
             "An aliveForever spec must have an explicit non-null key before its builder can execute.")
         val UNMANAGED = issue("ViewModelUnmanagedConstruction", "ViewModel constructed outside a managed builder",
             "Construct managed ViewModels only in spec builders or ViewModelFactory.build, then resolve the spec with an owner binding.")
-        val ARG_KEY = issue("ViewModelParameterizedSpecKey", "Parameterized spec has no key",
-            "Different arguments do not define instance identity. Supply an argument-derived key when distinct instances are intended; suppress this warning for deliberate per-binding reuse.")
-        val issues = listOf(CYCLE, CACHED, ALIVE_KEY, UNMANAGED, ARG_KEY)
+        val issues = listOf(CYCLE, CACHED, ALIVE_KEY, UNMANAGED)
     }
 }
