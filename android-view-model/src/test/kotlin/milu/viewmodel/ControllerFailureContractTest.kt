@@ -75,6 +75,37 @@ class ControllerFailureContractTest {
         }
     }
 
+    @Test fun reentrantDisposalRemovesAnotherHandleBeforeItsSnapshotTurn() {
+        val owner = ViewModelBinding()
+        val handles = mutableListOf<InstanceHandle<*>>()
+        val detached = mutableListOf<InstanceHandle<*>>()
+        var reentered = false
+        val controller = AutoDisposeInstanceController(owner, {}, onInstanceDetached = { handle, _ ->
+            detached += handle
+            if (!reentered) {
+                reentered = true
+                handles.filterNot { it === handle }.forEach { it.unbindAll(true) }
+            }
+            null
+        })
+        try {
+            for (key in listOf("first", "second")) {
+                val spec = viewModelSpec(key = key) { ViewModel() }
+                handles += controller.getHandle(spec.instanceType, InstanceFactory(spec::build, InstanceArg(key = key)))
+            }
+            // Whichever IdentityHashMap entry is visited first disposes the
+            // other one; its later snapshot entry must be an idempotent no-op.
+            controller.dispose()
+            assertEquals(2, detached.size)
+            assertEquals(2, detached.toSet().size)
+            assertTrue(handles.all { it.isDisposed })
+            assertEquals(0, InstanceManager.debugStoreCount)
+        } finally {
+            controller.dispose()
+            owner.dispose()
+        }
+    }
+
     @Test fun controllerCanOwnPlainValuesWithoutViewModelCallbacks() {
         val owner = ViewModelBinding()
         var refreshes = 0
