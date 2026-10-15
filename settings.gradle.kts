@@ -16,6 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "android_view_model"
 include(":android-view-model")
+include(":android-view-model-lint")
 include(":example")
 
 sourceControl {

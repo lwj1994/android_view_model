@@ -1,6 +1,6 @@
 ---
 name: android-view-model
-description: Use AndroidViewModel in Kotlin Android projects for state management, functional-module composition, dependency injection, automatic lifecycle, Compose/Activity/Fragment/View bindings, ViewModel-to-ViewModel dependencies, process-local sharing, Android cross-process state synchronization, threading, and tests.
+description: Use AndroidViewModel in Kotlin Android projects for state management, functional-module composition, dependency injection, automatic lifecycle, Compose/Activity/Fragment/View bindings, ViewModel-to-ViewModel dependencies, process-local sharing, Android cross-process state synchronization, threading, Android Lint checks, and tests.
 ---
 
 # AndroidViewModel Skill
@@ -638,14 +638,47 @@ fun tearDown() {
 - Android coroutine context elements provide the async isolation that Flutter
   implements with Zones for `runWithOverride`.
 
+## Recommended usage lint
+
+Recommend keeping the five bundled ViewModel checks enabled for consumer app
+and business modules. Version 0.9.0 and later bundle the checks in `lint.jar`
+inside the AAR. Do not add analyzer classes to
+app runtime dependencies or require a separate `lintChecks` dependency for a
+bundled AAR. Run the consumer's `./gradlew :app:lintDebug --no-parallel
+--max-workers=1` in CI and use Android Studio analysis during development.
+
+Warnings cover `ViewModelDependencyCycle`, `ViewModelCachedInstance`,
+`ViewModelAliveForeverKey`, `ViewModelUnmanagedConstruction`, and
+`ViewModelParameterizedSpecKey`. Prefer `by readViewModel/watchViewModel`, stable
+spec builders, and explicit keys only when retention/sharing/identity needs them.
+Do not add keys to every ordinary module just to silence a warning.
+
+For deliberately unkeyed argument reuse, disable only the relevant rule in the
+consumer module's `lint.xml`:
+
+```xml
+<lint>
+    <issue id="ViewModelParameterizedSpecKey" severity="ignore" />
+</lint>
+```
+
+A local `@Suppress("ViewModelParameterizedSpecKey")` with a reason is preferable
+when the exception is limited to one declaration. These are warnings by default;
+use standard Android Lint severity settings when CI should fail on them.
+Cycle diagnostics describe static own-binding type cycles within the analyzed
+module. Dynamic helper calls, keys, bindings, and runtime overrides can change
+the actual instance graph; retain runtime cycle checks and do not claim the
+lint proves a runtime cycle. See the repository README for all rule IDs and
+analysis boundaries.
+
 ## Verification and dependency guidance
 
 Run library verification serially:
 
 ```bash
-./gradlew :android-view-model:testDebugUnitTest \
+./gradlew :android-view-model-lint:test :android-view-model:testDebugUnitTest \
   :android-view-model:assembleDebug \
-  :android-view-model:lintDebug \
+  :android-view-model:lintDebug :example:lintDebug \
   --no-parallel --max-workers=1
 ```
 

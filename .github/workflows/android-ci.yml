@@ -34,12 +34,14 @@ jobs:
           "platforms;android-36" "build-tools;35.0.0"
       - name: Test with coverage, build, and lint serially
         run: >-
-          bash ./gradlew :android-view-model:koverXmlReportDebug
+          bash ./gradlew :android-view-model-lint:test :android-view-model:koverXmlReportDebug
           :android-view-model:koverHtmlReportDebug :android-view-model:koverVerifyDebug
-          :android-view-model:assembleDebug :android-view-model:lintDebug
+          :android-view-model:assembleDebug :android-view-model:lintDebug :example:lintDebug
           --no-parallel --max-workers=1 --stacktrace
       - name: Check R8 type metadata retention
         run: bash .github/scripts/check-r8-type-metadata.sh
+      - name: Verify bundled ViewModel lint in a consumer
+        run: python3 .github/scripts/check-view-model-lint.py
       - name: Check host-controlled diagnostics in the release library
         run: >-
           bash ./gradlew :android-view-model:testReleaseUnitTest
@@ -66,4 +68,7 @@ jobs:
           path: |
             android-view-model/build/reports/
             android-view-model/build/test-results/
+            android-view-model-lint/build/reports/
+            android-view-model-lint/build/test-results/
+            example/build/reports/
           if-no-files-found: ignore

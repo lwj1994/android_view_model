@@ -90,7 +90,7 @@ Add the dependency in your app or library module.
 
 ```kotlin
 dependencies {
-    implementation("com.github.lwj1994:android_view_model:0.8.2")
+    implementation("com.github.lwj1994:android_view_model:0.9.0")
 }
 ```
 
@@ -318,7 +318,7 @@ For a stable dependency, prefer a Git tag once one exists:
 
 ```kotlin
 dependencies {
-    implementation("android_view_model:android-view-model:0.8.2")
+    implementation("android_view_model:android-view-model:0.9.0")
 }
 ```
 
@@ -326,6 +326,54 @@ When using Gradle source dependencies for Android builds, set `ANDROID_HOME` or 
 
 
 This avoids Maven for this library itself. `google()` and `mavenCentral()` are still required for Android Gradle Plugin, Kotlin, AndroidX, and Compose dependencies.
+
+## Recommended Android Lint checks
+
+Version 0.9.0 and later bundle five custom checks in the library AAR
+through `lintPublish`. Recommend keeping them enabled in application and business
+modules and running Android Lint in CI. No runtime initialization or additional
+`lintChecks` dependency is needed when consuming an AAR containing `lint.jar`.
+
+```sh
+./gradlew :app:lintDebug --no-parallel --max-workers=1
+```
+
+Android Studio can also surface these diagnostics during code analysis. All five
+issues default to warning:
+
+| Issue ID | Meaning and recommended fix |
+| --- | --- |
+| `ViewModelDependencyCycle` | A statically visible own-binding type cycle, including `by` delegates; inspect the reported paths and review instance keys. |
+| `ViewModelCachedInstance` | A field, assignment, or `by lazy` retains a resolved VM. Use `by readViewModel/watchViewModel` with the owner's binding. |
+| `ViewModelAliveForeverKey` | A literal true `aliveForever` value/callback has no explicit non-null key. Supply the key. |
+| `ViewModelUnmanagedConstruction` | A VM is constructed outside a spec builder or `ViewModelFactory.build`. Resolve a stable spec through a binding. |
+| `ViewModelParameterizedSpecKey` | A parameterized spec has no key. Use an argument-derived key when distinct instances are intended. |
+
+Use a module's `lint.xml` to disable only an intentional exception:
+
+```xml
+<lint>
+    <issue id="ViewModelParameterizedSpecKey" severity="ignore" />
+</lint>
+```
+
+For a local exception, prefer `@Suppress("ViewModelParameterizedSpecKey")` with
+a comment explaining deliberate per-binding reuse. Standard Android Lint
+severity overrides and baselines remain available. Teams can promote selected
+warnings to errors in `lint.xml` or use `warningsAsErrors` in their lint DSL.
+
+The checks use resolved UAST types and methods rather than class-name matching.
+They preserve managed builders, superclass construction, local temporaries,
+computed properties, callbacks, and resolver delegates. Cycle detection covers
+static own-binding calls/delegates in the analyzed module; dynamic helpers,
+external modules, key/tag identities, and runtime overrides are not a proof of
+an instance cycle. Runtime cycle validation remains required. Unknown key and
+retention expressions are not guessed to be null/true.
+
+Developers changing the checks should run `:android-view-model-lint:test`, build
+the AAR, and run a consumer's lint task to verify packaging and discovery. The
+lint module is a JVM tooling module; Android runtime modules still use
+`org.jetbrains.kotlin.android`.
 
 ## Basic Usage
 

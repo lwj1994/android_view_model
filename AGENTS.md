@@ -18,6 +18,7 @@ android-view-model/src/main/kotlin/milu/viewmodel/  Core runtime and Android hos
 android-view-model/src/test/kotlin/milu/viewmodel/  Unit and lifecycle contract tests
 example/                                          Host usage examples
 skills/android-view-model/                        AI skill
+android-view-model-lint/                          Bundled Android Lint checks
 ```
 
 ## Core invariants
@@ -103,6 +104,12 @@ skills/android-view-model/                        AI skill
     cache entry before propagated owner cleanup or refresh can resolve a replacement.
 
 ## Test rules
+
+- Recommend the five bundled ViewModel lint checks for consumer modules. Keep
+  `lintPublish` wired into the runtime AAR, with only compile-only dependencies
+  in the lint module. Run `:android-view-model-lint:test` and `:example:lintDebug`
+  when changing lint. Diagnostics are warnings and individually configurable
+  through `lint.xml`; type cycles are advisory, not runtime instance proofs.
 
 - Run tests on one thread, in one JVM fork, in runner order. No parallel forks,
   sharding, or concurrent runners: registry, config, lifecycle, reset, and spec

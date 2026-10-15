@@ -5,7 +5,13 @@ All notable changes to AndroidViewModel will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-15
+
+### Added
+
+- Bundle five configurable Android Lint warnings in the library AAR for VM
+  dependency cycles, cached instances, retained keys, managed construction, and
+  parameterized spec identity. Recommend consumer lint checks in the skill.
 
 ### Fixed
 
