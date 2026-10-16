@@ -93,6 +93,66 @@ class ViewModelDetectorTest : LintDetectorTest() {
         """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run().expectClean()
     }
 
+    fun testBlockGetterLocalDeclarationsAreNotCaching() {
+        lint().files(api, kotlin("""
+            package test
+            import milu.viewmodel.*
+            class Child : ViewModel()
+            val spec = viewModelSpec { Child() }
+            class Host : ViewModel() {
+                val child: Child get() {
+                    val session = viewModelBinding.read(spec)
+                    session.toString()
+                    return session
+                }
+                val observed: Child get() {
+                    val session = viewModelBinding.watch(spec)
+                    return session
+                }
+            }
+        """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run().expectClean()
+    }
+
+    fun testBlockGetterAndMethodLocalAssignmentsAreNotCaching() {
+        lint().files(api, kotlin("""
+            package test
+            import milu.viewmodel.*
+            class Child : ViewModel()
+            val spec = viewModelSpec { Child() }
+            class Host : ViewModel() {
+                val child: Child get() {
+                    var session: Child
+                    session = viewModelBinding.read(spec)
+                    return session
+                }
+                fun resolve(): Child {
+                    var session: Child
+                    session = viewModelBinding.watch(spec)
+                    return session
+                }
+            }
+        """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run().expectClean()
+    }
+
+    fun testBlockGetterStoredAssignmentsAreCaching() {
+        lint().files(api, kotlin("""
+            package test
+            import milu.viewmodel.*
+            class Child : ViewModel()
+            val spec = viewModelSpec { Child() }
+            class Host : ViewModel() {
+                lateinit var session: Child
+                val child: Child get() {
+                    this.session = viewModelBinding.read(spec)
+                    session = viewModelBinding.watch(spec)
+                    return session
+                }
+            }
+        """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run()
+            .expectWarningCount(2)
+            .expectContains("[ViewModelCachedInstance]")
+    }
+
     fun testCyclesAcrossFilesAndDelegates() {
         lint().files(api,
             kotlin("""
