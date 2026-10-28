@@ -342,7 +342,18 @@ modules and running Android Lint in CI. No runtime initialization or additional
 ```
 
 Android Studio can also surface these diagnostics during code analysis. All four
-issues default to warning:
+issues default to warning. See [RULES.md](android-view-model-lint/RULES.md) for
+good and bad examples of every check.
+
+`ViewModelCachedInstance` and `ViewModelAliveForeverKey` carry safe automatic
+fixes. Android Studio offers them as quick fixes, and Gradle applies them in bulk:
+
+```sh
+./gradlew :app:lintFix --no-parallel --max-workers=1
+```
+
+`lintFix` stops the build after editing sources; run lint again to see what still
+needs a manual change.
 
 | Issue ID | Meaning and recommended fix |
 | --- | --- |
@@ -471,11 +482,26 @@ class CounterFragment : Fragment() {
 
 ### View
 
+A plain View has no lifecycle of its own, so there is no View-scoped binding
+property. Share the nearest owner's retained binding with
+`viewTreeViewModelBinding`, or own a `ViewModelBindingScope` for the attached span:
+
 ```kotlin
 class CounterPanelView(context: Context) : LinearLayout(context) {
+    private var scope: ViewModelBindingScope? = null
+    private val counter: CounterViewModel by watchViewModel(counterSpec) {
+        checkNotNull(scope).viewModelBinding
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        val counter by watchViewModel(counterSpec) { viewModelBinding }
+        scope = ViewModelBindingScope()
+    }
+
+    override fun onDetachedFromWindow() {
+        scope?.close()
+        scope = null
+        super.onDetachedFromWindow()
     }
 }
 ```
@@ -879,8 +905,7 @@ The [example guide](example/README.md) covers the delegate conventions. The `exa
 - Compose with `rememberScreenViewModelBinding`
 - Activity with `viewModelBinding`
 - Fragment with `viewLifecycleViewModelBinding` and `activityViewModelBinding`
-- Custom View with `viewModelBinding`
-- Plain class with `ViewModelBindingScope`
+- Custom View and plain class with `ViewModelBindingScope`
 
 The bundled skill also contains an English, multi-file
 [Instagram architecture example](./skills/android-view-model/examples/instagram_architecture/README.md).

@@ -58,6 +58,83 @@ class ViewModelDetectorTest : LintDetectorTest() {
             .expectContains("[ViewModelUnmanagedConstruction]")
     }
 
+    fun testCachedInstanceFixes() {
+        lint().files(api, kotlin("""
+            package test
+            import milu.viewmodel.*
+            class Child : ViewModel()
+            val spec = viewModelSpec { Child() }
+            class Host {
+                val binding = ViewModelBinding()
+                val cached = binding.read(spec)
+                private val typed: Child = binding.watch(spec)
+                val lazyChild by lazy { binding.read(spec) }
+                lateinit var late: Child
+                fun init() { late = binding.read(spec) }
+            }
+        """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run()
+            .expectWarningCount(4)
+            .expectFixDiffs("""
+                Autofix for src/test/Child.kt line 7: Resolve the ViewModel in a getter:
+                @@ -7 +7 @@
+                -    val cached = binding.read(spec)
+                +    val cached get() = binding.read(spec)
+                Autofix for src/test/Child.kt line 8: Resolve the ViewModel in a getter:
+                @@ -8 +8 @@
+                -    private val typed: Child = binding.watch(spec)
+                +    private val typed: Child get() = binding.watch(spec)
+                Autofix for src/test/Child.kt line 9: Resolve the ViewModel in a getter:
+                @@ -9 +9 @@
+                -    val lazyChild by lazy { binding.read(spec) }
+                +    val lazyChild get() = binding.read(spec)
+            """.trimIndent())
+    }
+
+    fun testAliveForeverKeyFixes() {
+        lint().files(api, kotlin("""
+            package test
+            import milu.viewmodel.*
+            class Child : ViewModel()
+            val authSpec = viewModelSpec(aliveForever = true) { Child() }
+            val nullKey = viewModelSpec(key = null, aliveForever = true) { Child() }
+            val userCacheSpec = viewModelSpecWithArg<Child, String>(builder = { Child() }, aliveForever = { true })
+            val positional = ViewModelSpec({ Child() }, null, true)
+        """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run()
+            .expectWarningCount(4)
+            .expectFixDiffs("""
+                Autofix for src/test/Child.kt line 4: Add the key "auth":
+                @@ -4 +4 @@
+                -val authSpec = viewModelSpec(aliveForever = true) { Child() }
+                +val authSpec = viewModelSpec(key = "auth", aliveForever = true) { Child() }
+                Autofix for src/test/Child.kt line 5: Add the key "nullKey":
+                @@ -5 +5 @@
+                -val nullKey = viewModelSpec(key = null, aliveForever = true) { Child() }
+                +val nullKey = viewModelSpec(key = "nullKey", aliveForever = true) { Child() }
+                Autofix for src/test/Child.kt line 6: Add the key { "userCache:＄it" }:
+                @@ -6 +6 @@
+                -val userCacheSpec = viewModelSpecWithArg<Child, String>(builder = { Child() }, aliveForever = { true })
+                +val userCacheSpec = viewModelSpecWithArg<Child, String>(builder = { Child() }, key = { "userCache:＄it" }, aliveForever = { true })
+            """.trimIndent())
+    }
+
+    fun testAliveForeverKeyFixKeepsArgumentLayout() {
+        lint().files(api, kotlin("""
+            package test
+            import milu.viewmodel.*
+            class Child(val id: String) : ViewModel()
+            val userCacheSpec = viewModelSpecWithArg<Child, String>(
+                builder = ::Child,
+                aliveForever = { true },
+            )
+        """).indented()).allowMissingSdk().testModes(TestMode.DEFAULT).run()
+            .expectWarningCount(1)
+            .expectFixDiffs("""
+                Autofix for src/test/Child.kt line 4: Add the key { "userCache:＄it" }:
+                @@ -5,0 +6 @@
+                +    key = { "userCache:＄it" },
+            """.trimIndent())
+    }
+
     fun testUnkeyedParameterizedSpecsAreAllowed() {
         lint().files(api, kotlin("""
             package test

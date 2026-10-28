@@ -5,6 +5,34 @@ All notable changes to AndroidViewModel will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Automatic fixes for `ViewModelCachedInstance` (a stored or `by lazy` property
+  becomes a getter) and `ViewModelAliveForeverKey` (adds a key named after the
+  spec). Android Studio offers them as quick fixes; `lintFix` applies them.
+
+### Removed
+
+- Remove `View.viewModelBinding`. A plain View has no lifecycle, so window
+  detachment was an ambiguous release signal (list-item recycling versus a
+  temporary `removeView`) and a never-attached View never released its
+  ViewModels. Custom Views share the owner binding through
+  `viewTreeViewModelBinding` or own a `ViewModelBindingScope` created in
+  `onAttachedToWindow` and closed in `onDetachedFromWindow`.
+
+### Fixed
+
+- `Fragment.viewLifecycleViewModelBinding` now follows `viewLifecycleOwner`
+  instead of window attachment. An offscreen ViewPager2 page or a cached list
+  item no longer disposes the binding and its unkeyed ViewModels while the
+  Fragment view is still alive.
+- Document the `onUpdate` / `addUpdateListener` contract: a coalesced refresh
+  request whose read must be deferred, and whose listener must be removed with
+  its host when the binding is retained across configuration changes. The
+  example hosts now defer their renders and remove their listeners.
+
 ## [0.9.1] - 2026-10-15
 
 ### Removed

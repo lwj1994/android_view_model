@@ -75,28 +75,34 @@ class AndroidHostContractTest {
         assertTrue(activity.viewModelStore.keys().isEmpty())
     }
 
-    @Test fun viewBindingsReuseLiveGenerationAndReleaseOnDetach() {
+    @Test fun fragmentViewBindingSurvivesWindowDetachWhileViewLifecycleIsAlive() {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup().visible()
         val activity = controller.get()
-        val container = FrameLayout(activity)
-        val child = View(activity)
+        val container = FrameLayout(activity).apply { id = 12346 }
         activity.setContentView(container)
+        val fragment = TestHostFragment()
+        activity.supportFragmentManager.beginTransaction().add(container.id, fragment).commitNow()
         try {
-            val first = child.viewModelBinding
-            assertSame(first, child.viewModelBinding)
-            first.dispose()
-            val second = child.viewModelBinding
-            assertNotSame(first, second)
-            container.addView(child)
-            assertFalse(second.isDisposed)
-            container.removeView(child)
-            assertTrue(second.isDisposed)
-            assertNull(child.getTag(R.id.milu_view_model_binding))
-            val third = child.viewModelBinding
-            assertNotSame(second, third)
-            third.dispose()
-            val unexpectedTag = View(activity).apply { setTag(R.id.milu_view_model_binding, "other") }
-            unexpectedTag.viewModelBinding.dispose()
+            val fragmentView = fragment.requireView()
+            val viewBinding = fragment.viewLifecycleViewModelBinding
+            val spec = viewModelSpec { ViewModel() }
+            val model by viewBinding.readViewModel(spec)
+            val before = model
+
+            // Offscreen pager pages and cached list items leave the window without
+            // destroying the Fragment view.
+            container.removeView(fragmentView)
+            assertFalse(viewBinding.isDisposed)
+            assertSame(viewBinding, fragmentView.getTag(R.id.milu_view_model_binding))
+            container.addView(fragmentView)
+            assertSame(viewBinding, fragment.viewLifecycleViewModelBinding)
+            assertSame(before, model)
+
+            activity.supportFragmentManager.beginTransaction().remove(fragment).commitNow()
+            assertTrue(viewBinding.isDisposed)
+            assertTrue(before.isDisposed)
+            assertNull(fragmentView.getTag(R.id.milu_view_model_binding))
+            assertNull(fragmentView.getTag(R.id.milu_view_model_binding_lifecycle_owner))
         } finally {
             controller.pause().stop().destroy()
         }

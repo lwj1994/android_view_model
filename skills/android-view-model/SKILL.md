@@ -288,7 +288,7 @@ does not need handwritten getters.
 | Activity / Fragment instance | `by watchViewModel(spec) { viewModelBinding }` | Cleared with host `ViewModelStore`. |
 | Fragment view lifecycle | `by watchViewModel(spec) { viewLifecycleViewModelBinding }` | Disposed with the Fragment view. |
 | Activity-shared Fragment access | `by watchViewModel(spec) { activityViewModelBinding }` | Uses Activity ownership. |
-| Custom View local scope | `by watchViewModel(spec) { viewModelBinding }` | Disposed on detach. |
+| Custom View local scope | `by watchViewModel(spec) { checkNotNull(scope).viewModelBinding }` with a `ViewModelBindingScope` created in `onAttachedToWindow` and closed in `onDetachedFromWindow` | Views have no lifecycle; the View owns the scope explicitly. |
 | View tree owner | `by watchViewModel(spec) { viewTreeViewModelBinding }` | Reuses nearest owner binding. |
 | Plain class / tests, existing fixed binding | `by binding.readViewModel(spec)` or watch counterpart | Caller must close/dispose. |
 
@@ -654,6 +654,8 @@ Warnings cover `ViewModelDependencyCycle`, `ViewModelCachedInstance`,
 `ViewModelAliveForeverKey`, and `ViewModelUnmanagedConstruction`. Prefer
 `by readViewModel/watchViewModel`, stable spec builders, and explicit keys only when retention/sharing/identity needs them.
 Do not add keys to every ordinary module just to silence a warning.
+`ViewModelCachedInstance` and `ViewModelAliveForeverKey` have automatic fixes:
+Android Studio quick fixes, or `./gradlew :app:lintFix` in bulk.
 
 For deliberately unkeyed argument reuse, disable only the relevant rule in the
 consumer module's `lint.xml`:

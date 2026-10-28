@@ -6,6 +6,9 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiClassType
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiType
+import com.intellij.psi.PsiWhiteSpace
+import com.intellij.psi.util.PsiTreeUtil
+import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtSuperTypeCallEntry
 import org.jetbrains.kotlin.psi.KtConstructorDelegationCall
@@ -50,6 +53,7 @@ class ViewModelDetector : Detector(), SourceCodeScanner {
                 context.report(
                     CACHED, node, context.getLocation(node),
                     "A stored ViewModel can remain stale after recycle; use by readViewModel/watchViewModel with the owner's binding.",
+                    cachedFix(context, node),
                 )
             }
             val owner = node.getContainingUClass()?.javaPsi ?: return
@@ -91,8 +95,72 @@ class ViewModelDetector : Detector(), SourceCodeScanner {
             context.report(
                 ALIVE_KEY, call, context.getLocation(call),
                 "aliveForever is true without an explicit non-null key; managed resolution requires a key.",
+                keyFix(context, call, method),
             )
         }
+    }
+
+    /** Turns a stored `val` into a getter that resolves on every access. */
+    private fun cachedFix(context: JavaContext, call: UCallExpression): LintFix? {
+        val source = call.sourcePsi ?: return null
+        val property = PsiTreeUtil.getParentOfType(source, KtProperty::class.java) ?: return null
+        if (property.isVar || property.isLocal) return null
+        val fix = LintFix.create().name("Resolve the ViewModel in a getter").replace()
+        val initializer = property.initializer
+        if (initializer != null) {
+            val equals = property.equalsToken ?: return null
+            if (!PsiTreeUtil.isAncestor(initializer, source, false)) return null
+            return fix.range(context.getLocation(equals)).with("get() =").autoFix().build()
+        }
+        // `by lazy { read(spec) }` keeps one generation; a getter re-resolves it.
+        val delegate = property.delegate ?: return null
+        val lazy = delegate.expression as? KtCallExpression ?: return null
+        val body = lazy.lambdaArguments.singleOrNull()?.getLambdaExpression()
+            ?.bodyExpression?.statements?.singleOrNull() ?: return null
+        if (!PsiTreeUtil.isAncestor(body, source, false)) return null
+        return fix.range(context.getLocation(delegate)).with("get() = ${body.text}").autoFix().build()
+    }
+
+    /** Names the retained instance after its spec property, or its type. */
+    private fun keyFix(context: JavaContext, call: UCallExpression, method: PsiMethod): LintFix? {
+        val source = call.sourcePsi as? KtCallExpression ?: return null
+        val arguments = source.valueArguments
+        fun named(name: String) = arguments.firstOrNull { it.getArgumentName()?.asName?.identifier == name }
+        val alive = named("aliveForever") ?: return null
+        val specName = if (method.isConstructor) method.containingClass?.name else method.name
+        val suffix = specName?.removePrefix("viewModelSpecWithArg")?.removePrefix("ViewModelSpecWithArg")
+        val arity = when {
+            specName == null || suffix == null -> return null
+            specName.equals("viewModelSpec", ignoreCase = true) -> 0
+            suffix == specName -> return null
+            suffix.isEmpty() -> 1
+            else -> suffix.toIntOrNull() ?: return null
+        }
+        val property = PsiTreeUtil.getParentOfType(source, KtProperty::class.java)
+            ?.takeIf { it.initializer == source }
+        val base = property?.name?.removeSuffix("Spec")?.ifEmpty { null }
+            ?: resolvedViewModel(context, (call.getExpressionType() as? PsiClassType)?.parameters?.firstOrNull())
+                ?.name?.replaceFirstChar(Char::lowercase)
+            ?: "viewModel"
+        val key = when (arity) {
+            0 -> "\"$base\""
+            1 -> "{ \"$base:\$it\" }"
+            else -> {
+                val names = (1..arity).map { "arg$it" }
+                "{ ${names.joinToString()} -> \"$base:${names.joinToString(":") { "\$$it" }}\" }"
+            }
+        }
+        val fix = LintFix.create().name("Add the key $key").replace()
+        val existing = named("key")?.getArgumentExpression()
+        val edit = if (existing != null) {
+            fix.range(context.getLocation(existing)).with(key)
+        } else {
+            // Keep one argument per line when the call is laid out that way.
+            val spacing = (alive.prevSibling as? PsiWhiteSpace)?.text
+            val separator = if (spacing?.contains('\n') == true) ",\n${spacing.substringAfterLast('\n')}" else ", "
+            fix.range(context.getLocation(alive)).beginning().with("key = $key$separator")
+        }
+        return edit.autoFix().build()
     }
 
     private fun isViewModel(context: JavaContext, type: PsiClass?): Boolean = type != null &&

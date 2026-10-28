@@ -121,6 +121,19 @@ public open class ViewModelBinding {
         return null
     }
 
+    /**
+     * Refresh request fired when a watched ViewModel notifies, or when a resolved
+     * instance is recycled.
+     *
+     * This is a request, not the final value: inside one synchronous propagation
+     * transaction only the first notification reaches a root binding, and later
+     * changes in the same transaction (for example a derived VM reacting through
+     * `listen`) are coalesced into that single call. Hosts that render synchronously
+     * must therefore defer the actual read (`View.post`, `invalidate`, Compose
+     * invalidation); hosts that only mark themselves dirty need nothing extra.
+     * Business reactions that must observe every transition use
+     * [listen], [listenState] or [listenStateSelect] instead.
+     */
     public open fun onUpdate() {
         assertMainThread()
         updateListeners.toList().forEach { (id, listener) ->
@@ -145,6 +158,15 @@ public open class ViewModelBinding {
         viewModelLog { "${this::class.qualifiedName} resumed with missed updates" }
     }
 
+    /**
+     * Registers a refresh-request listener; see [onUpdate] for the coalescing
+     * contract and why the listener should defer its read.
+     *
+     * The registration lives as long as this binding. A retained binding
+     * (`Activity.viewModelBinding`, `rememberScreenViewModelBinding`) outlives
+     * configuration changes, so a listener that captures an Activity, Fragment or
+     * View must be removed with the returned function when that host is destroyed.
+     */
     public fun addUpdateListener(listener: () -> Unit): () -> Unit {
         assertMainThread()
         val id = UUID.randomUUID().toString()

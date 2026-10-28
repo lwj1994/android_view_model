@@ -28,6 +28,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentContainerView
 import androidx.fragment.app.FragmentActivity
 import milu.viewmodel.ViewModelBindingProvider
+import milu.viewmodel.ViewModelBindingScope
 import milu.viewmodel.activityViewModelBinding
 import milu.viewmodel.rememberScreenViewModelBinding
 import milu.viewmodel.viewLifecycleViewModelBinding
@@ -37,6 +38,7 @@ import milu.viewmodel.watchViewModel
 class MainActivity : FragmentActivity() {
     private val plainController = PlainCounterController()
     private val counter: CounterViewModel by watchViewModel(counterSpec) { viewModelBinding }
+    private var removeTitleListener: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,12 +100,21 @@ class MainActivity : FragmentActivity() {
         }
 
         title = "Count ${counter.state.count}"
-        viewModelBinding.addUpdateListener {
-            title = "Count ${counter.state.count}"
+        // An update is a refresh request, not the final value: later notifications in
+        // the same synchronous transaction are coalesced into this one call. Post the
+        // render so it reads the state after the whole transaction has settled.
+        removeTitleListener = viewModelBinding.addUpdateListener {
+            window.decorView.post {
+                if (!isDestroyed) title = "Count ${counter.state.count}"
+            }
         }
     }
 
     override fun onDestroy() {
+        // The Activity binding is retained across configuration changes; the listener
+        // captures this Activity instance and must leave with it.
+        removeTitleListener?.invoke()
+        removeTitleListener = null
         plainController.close()
         super.onDestroy()
     }
@@ -181,7 +192,10 @@ class CounterFragment : Fragment() {
         button.setOnClickListener {
             activityCounter.increment("fragment")
         }
-        viewLifecycleViewModelBinding.addUpdateListener(::render)
+        // Defer the render; the update callback only signals that a refresh is due.
+        viewLifecycleViewModelBinding.addUpdateListener {
+            view.post { if (getView() != null) render() }
+        }
     }
 }
 
@@ -190,7 +204,14 @@ class CounterPanelView(context: android.content.Context) : LinearLayout(context)
     private val button = Button(context).apply {
         text = "View +1"
     }
-    private val counter: CounterViewModel by watchViewModel(counterSpec) { viewModelBinding }
+
+    // A View has no lifecycle of its own, so it owns its binding scope explicitly for
+    // the attached span. Use viewTreeViewModelBinding instead to share the owner's.
+    private var scope: ViewModelBindingScope? = null
+    private val counter: CounterViewModel by watchViewModel(counterSpec) {
+        checkNotNull(scope) { "CounterPanelView resolves ViewModels only while attached." }
+            .viewModelBinding
+    }
 
     init {
         orientation = VERTICAL
@@ -201,6 +222,7 @@ class CounterPanelView(context: android.content.Context) : LinearLayout(context)
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        val scope = ViewModelBindingScope().also { this.scope = it }
         fun render() {
             title.text = "Custom View count: ${counter.state.count}"
         }
@@ -209,6 +231,15 @@ class CounterPanelView(context: android.content.Context) : LinearLayout(context)
         button.setOnClickListener {
             counter.increment("custom view")
         }
-        viewModelBinding.addUpdateListener(::render)
+        // Defer the render; the update callback only signals that a refresh is due.
+        scope.viewModelBinding.addUpdateListener {
+            post { if (isAttachedToWindow) render() }
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        scope?.close()
+        scope = null
+        super.onDetachedFromWindow()
     }
 }

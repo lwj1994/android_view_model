@@ -86,6 +86,11 @@ public val Fragment.activityViewModelBinding: ViewModelBinding
 
 /**
  * Fragment view-lifecycle binding, disposed when the Fragment view is destroyed.
+ *
+ * The binding follows `viewLifecycleOwner`, not window attachment. A Fragment view
+ * can leave the window while its view lifecycle stays alive (for example an offscreen
+ * ViewPager2 page cached by RecyclerView); the binding and its unkeyed ViewModels
+ * survive that and are released on `ON_DESTROY` of the view lifecycle.
  */
 @get:MainThread
 public val Fragment.viewLifecycleViewModelBinding: ViewModelBinding
@@ -93,45 +98,24 @@ public val Fragment.viewLifecycleViewModelBinding: ViewModelBinding
         assertMainThread()
         val owner = viewLifecycleOwner
         val view = requireView()
-        val binding = view.viewModelBinding
-        if (view.getTag(R.id.milu_view_model_binding_lifecycle_owner) !== owner) {
-            binding.addPauseProvider(LifecyclePauseProvider(owner), ownsProvider = true)
-            owner.lifecycle.addObserver(
-                object : DefaultLifecycleObserver {
-                    override fun onDestroy(owner: LifecycleOwner) {
-                        binding.dispose()
-                        view.setTag(R.id.milu_view_model_binding, null)
-                        view.setTag(R.id.milu_view_model_binding_lifecycle_owner, null)
-                    }
-                },
-            )
-            view.setTag(R.id.milu_view_model_binding_lifecycle_owner, owner)
-        }
-        return binding
-    }
-
-/**
- * Binding owned by this View. It is disposed when the View detaches from the window.
- */
-@get:MainThread
-public val View.viewModelBinding: ViewModelBinding
-    get() {
-        assertMainThread()
-        (getTag(R.id.milu_view_model_binding) as? ViewModelBinding)
+        (view.getTag(R.id.milu_view_model_binding) as? ViewModelBinding)
             ?.takeUnless { it.isDisposed }
+            ?.takeIf { view.getTag(R.id.milu_view_model_binding_lifecycle_owner) === owner }
             ?.let { return it }
 
         val binding = ViewModelBinding()
-        setTag(R.id.milu_view_model_binding, binding)
-        addOnAttachStateChangeListener(
-            object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) = Unit
-
-                override fun onViewDetachedFromWindow(v: View) {
+        binding.addPauseProvider(LifecyclePauseProvider(owner), ownsProvider = true)
+        view.setTag(R.id.milu_view_model_binding, binding)
+        view.setTag(R.id.milu_view_model_binding_lifecycle_owner, owner)
+        owner.lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onDestroy(owner: LifecycleOwner) {
+                    owner.lifecycle.removeObserver(this)
                     binding.dispose()
-                    v.setTag(R.id.milu_view_model_binding, null)
-                    v.setTag(R.id.milu_view_model_binding_lifecycle_owner, null)
-                    v.removeOnAttachStateChangeListener(this)
+                    if (view.getTag(R.id.milu_view_model_binding) === binding) {
+                        view.setTag(R.id.milu_view_model_binding, null)
+                        view.setTag(R.id.milu_view_model_binding_lifecycle_owner, null)
+                    }
                 }
             },
         )
@@ -140,6 +124,11 @@ public val View.viewModelBinding: ViewModelBinding
 
 /**
  * Finds a ViewModelStoreOwner from the View tree and reuses its retained binding.
+ *
+ * A plain View has no lifecycle of its own, so there is no View-scoped binding
+ * property. A custom View either shares its owner's binding through this property,
+ * or owns a [ViewModelBindingScope] explicitly: create it in `onAttachedToWindow`
+ * and close it in `onDetachedFromWindow`.
  */
 @get:MainThread
 public val View.viewTreeViewModelBinding: ViewModelBinding
