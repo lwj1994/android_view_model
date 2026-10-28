@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "io.github.lwj1994"
-version = "0.9.1"
+version = "0.10.0"
 
 val isJitPack = providers.environmentVariable("JITPACK")
     .map { it.equals("true", ignoreCase = true) }
@@ -24,7 +24,7 @@ val publishedGroupId = if (isJitPack) {
 val publishedVersion = if (isJitPack) {
     providers.environmentVariable("VERSION").get()
 } else {
-    "0.9.1"
+    "0.10.0"
 }
 
 val isPublishingToMavenCentral = gradle.startParameter.taskNames.any { taskName ->

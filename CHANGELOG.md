@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-28
+
 ### Added
 
 - Automatic fixes for `ViewModelCachedInstance` (a stored or `by lazy` property
