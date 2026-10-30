@@ -108,6 +108,62 @@ class AndroidHostContractTest {
         }
     }
 
+    @Test fun earlyDisposedFragmentViewBindingIsReplacedForTheSameViewLifecycle() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup().visible()
+        val activity = controller.get()
+        val container = FrameLayout(activity).apply { id = 12347 }
+        activity.setContentView(container)
+        val fragment = TestHostFragment()
+        activity.supportFragmentManager.beginTransaction().add(container.id, fragment).commitNow()
+        try {
+            val fragmentView = fragment.requireView()
+            val disposed = fragment.viewLifecycleViewModelBinding
+            disposed.dispose()
+
+            val replacement = fragment.viewLifecycleViewModelBinding
+            assertNotSame(disposed, replacement)
+            assertFalse(replacement.isDisposed)
+            assertSame(replacement, fragment.viewLifecycleViewModelBinding)
+
+            activity.supportFragmentManager.beginTransaction().remove(fragment).commitNow()
+            assertTrue(replacement.isDisposed)
+            assertNull(fragmentView.getTag(R.id.milu_view_model_binding))
+            assertNull(fragmentView.getTag(R.id.milu_view_model_binding_lifecycle_owner))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun fragmentViewBindingIsNotSharedAcrossViewLifecycleOwnersOfOneView() {
+        val view = FrameLayout(RuntimeEnvironment.getApplication())
+        val first = TestViewLifecycleOwner()
+        val second = TestViewLifecycleOwner()
+        val fragment = ManualViewFragment(view, first)
+
+        val firstBinding = fragment.viewLifecycleViewModelBinding
+        // The binding belongs to the view lifecycle, not the View: another live owner
+        // of the same View gets its own binding, and the older owner's teardown must
+        // leave the newer owner's tags in place.
+        fragment.owner = second
+        val secondBinding = fragment.viewLifecycleViewModelBinding
+        assertNotSame(firstBinding, secondBinding)
+        assertFalse(firstBinding.isDisposed)
+
+        first.lifecycle.currentState = Lifecycle.State.DESTROYED
+        assertTrue(firstBinding.isDisposed)
+        assertFalse(secondBinding.isDisposed)
+        assertSame(secondBinding, view.getTag(R.id.milu_view_model_binding))
+        assertSame(second, view.getTag(R.id.milu_view_model_binding_lifecycle_owner))
+        assertSame(secondBinding, fragment.viewLifecycleViewModelBinding)
+
+        second.lifecycle.currentState = Lifecycle.State.DESTROYED
+        assertTrue(secondBinding.isDisposed)
+        assertNull(view.getTag(R.id.milu_view_model_binding))
+        assertNull(view.getTag(R.id.milu_view_model_binding_lifecycle_owner))
+        assertEquals(0, first.lifecycle.observerCount)
+        assertEquals(0, second.lifecycle.observerCount)
+    }
+
     @Test fun viewTreeLookupRequiresOwnerAndUsesItsRetainedBinding() {
         val root = FrameLayout(RuntimeEnvironment.getApplication())
         val child = View(root.context)
@@ -192,4 +248,18 @@ class AndroidHostContractTest {
 class TestHostFragment : Fragment() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         FrameLayout(requireContext())
+}
+
+private class TestViewLifecycleOwner : LifecycleOwner {
+    override val lifecycle = LifecycleRegistry(this).apply { currentState = Lifecycle.State.STARTED }
+}
+
+/** Supplies the view lifecycle directly so a test can hand one View to successive owners. */
+private class ManualViewFragment(
+    private val hostView: View,
+    var owner: LifecycleOwner,
+) : Fragment() {
+    override fun getView(): View = hostView
+
+    override fun getViewLifecycleOwner(): LifecycleOwner = owner
 }
