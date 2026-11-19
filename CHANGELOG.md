@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-19
+
 ### Fixed
 
 - Fix a main-thread hang when many bindings own the same ViewModel that has
