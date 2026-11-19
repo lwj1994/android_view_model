@@ -12,11 +12,15 @@ public class ViewModelBindingHandler {
     }
     private val refSources = linkedMapOf<String, OwnerSources>()
     private var ownerRevision = 0L
-    private val ownerChangeListeners = linkedMapOf<Any, (
-        owners: List<String>,
-        previousPrimaryOwner: String?,
-        primaryOwner: String?,
-    ) -> Unit>()
+
+    // A diagnostics listener receives the full owner snapshot; a dependency binding
+    // receives only the owner that changed, because a shared ViewModel can be owned
+    // by thousands of list cells and must not rebuild its owner list per change.
+    private class OwnerListener(
+        val snapshot: ((List<String>, String?, String?) -> Unit)? = null,
+        val delta: ((Long, ViewModelBinding?, Boolean) -> Unit)? = null,
+    )
+    private val ownerChangeListeners = linkedMapOf<Any, OwnerListener>()
 
     /** Ordered bindings that currently own this ViewModel. */
     public val owners: List<ViewModelBinding>
@@ -47,8 +51,22 @@ public class ViewModelBindingHandler {
         get() = refSources.values.firstOrNull()?.binding
 
     internal fun addOwnerChangeListener(
-        listener: (List<String>, String?, String?) -> Unit,
-    ): () -> Unit {
+        listener: (owners: List<String>, previousPrimaryOwner: String?, primaryOwner: String?) -> Unit,
+    ): () -> Unit = addListener(OwnerListener(snapshot = listener))
+
+    /**
+     * Adds an incremental owner listener for dependency bindings.
+     *
+     * `revision` is this handler's ownership revision for the change. `owner` is the
+     * single binding that was added (`added = true`) or removed, or null when several
+     * owners changed at once. A listener that has seen every previous revision can
+     * apply the change directly; otherwise it must resynchronize from [externalOwners].
+     */
+    internal fun addOwnerDeltaListener(
+        listener: (revision: Long, owner: ViewModelBinding?, added: Boolean) -> Unit,
+    ): () -> Unit = addListener(OwnerListener(delta = listener))
+
+    private fun addListener(listener: OwnerListener): () -> Unit {
         val id = Any()
         ownerChangeListeners[id] = listener
         return { ownerChangeListeners.remove(id) }
@@ -62,7 +80,7 @@ public class ViewModelBindingHandler {
         val previousPrimaryOwner = primaryOwner?.id
         val entry = refSources.getOrPut(binding.id) { OwnerSources(binding) }
         if (!entry.sources.add(source) || entry.sources.size != 1) return null
-        return ownerChange(previousPrimaryOwner).also { if (notify) it() }
+        return ownerChange(previousPrimaryOwner, binding, added = true).also { if (notify) it() }
     }
 
     /** Whether this binding owns the ViewModel through its own direct source. */
@@ -78,20 +96,26 @@ public class ViewModelBindingHandler {
         val entry = refSources[binding.id] ?: return null
         if (!entry.sources.remove(source) || entry.sources.isNotEmpty()) return null
         refSources.remove(binding.id)
-        return ownerChange(previousPrimaryOwner).also { if (notify) it() }
+        return ownerChange(previousPrimaryOwner, binding, added = false).also { if (notify) it() }
     }
 
     internal fun clearRefs(notify: Boolean = true): (() -> Unit)? {
         if (refSources.isEmpty()) return null
         val previousPrimaryOwner = primaryOwner?.id
         refSources.clear()
-        return ownerChange(previousPrimaryOwner).also { if (notify) it() }
+        return ownerChange(previousPrimaryOwner, owner = null, added = false).also { if (notify) it() }
     }
 
-    private fun ownerChange(previousPrimaryOwner: String?): () -> Unit {
+    private fun ownerChange(
+        previousPrimaryOwner: String?,
+        owner: ViewModelBinding?,
+        added: Boolean,
+    ): () -> Unit {
         val revision = ++ownerRevision
         return {
-            if (revision == ownerRevision) notifyOwnerChanges(previousPrimaryOwner, revision)
+            if (revision == ownerRevision) {
+                notifyOwnerChanges(previousPrimaryOwner, revision, owner, added)
+            }
         }
     }
 
@@ -110,15 +134,27 @@ public class ViewModelBindingHandler {
             )
         }
 
-    private fun notifyOwnerChanges(previousPrimaryOwner: String?, revision: Long) {
+    private fun notifyOwnerChanges(
+        previousPrimaryOwner: String?,
+        revision: Long,
+        owner: ViewModelBinding?,
+        added: Boolean,
+    ) {
         if (ownerChangeListeners.isEmpty()) return
-        val ids = owners.map(ViewModelBinding::id)
+        // Built only for diagnostics listeners: O(owners) per change otherwise.
+        var ids: List<String>? = null
         val currentPrimaryOwner = primaryOwner?.id
         ownerChangeListeners.toList().forEach { (id, listener) ->
             if (revision != ownerRevision) return
             if (ownerChangeListeners[id] !== listener) return@forEach
             try {
-                listener(ids, previousPrimaryOwner, currentPrimaryOwner)
+                val delta = listener.delta
+                if (delta != null) {
+                    delta(revision, owner, added)
+                } else {
+                    val snapshot = ids ?: owners.map(ViewModelBinding::id).also { ids = it }
+                    listener.snapshot!!(snapshot, previousPrimaryOwner, currentPrimaryOwner)
+                }
             } catch (error: Throwable) {
                 reportViewModelError(
                     error,

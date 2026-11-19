@@ -9,7 +9,13 @@ internal class ViewModelDependencyBinding(
 ) : ViewModelBinding() {
     override val isDependencyBinding: Boolean = true
 
-    private val propagatedOwners = mutableListOf<ViewModelBinding>()
+    // Root owners mirrored onto every dependency, in the parent's owner order. Binding
+    // IDs are unique, so an ordered map keeps membership checks and removals O(1): a
+    // shared ViewModel can be owned by thousands of list cells.
+    private val propagatedOwners = linkedMapOf<String, ViewModelBinding>()
+    // Parent owner revision [propagatedOwners] reflects; null until the first change,
+    // because construction may have used the building binding as a fallback owner.
+    private var syncedRevision: Long? = null
     // Each attachment gets a token so old cleanup cannot release a replacement edge.
     private class DependencyEdge(val viewModel: ViewModel)
     private val dependencies = IdentityHashMap<InstanceHandle<*>, DependencyEdge>()
@@ -18,9 +24,9 @@ internal class ViewModelDependencyBinding(
 
     init {
         registerViewModelConstructionRollback(::dispose)
-        propagatedOwners += parentHandler.constructionExternalOwners
-        removeOwnerListener = parentHandler.addOwnerChangeListener { _, _, _ ->
-            syncOwners(parentHandler.externalOwners)
+        parentHandler.constructionExternalOwners.forEach { propagatedOwners[it.id] = it }
+        removeOwnerListener = parentHandler.addOwnerDeltaListener { revision, owner, added ->
+            ownersChanged(parentHandler, revision, owner, added)
         }
     }
 
@@ -38,7 +44,7 @@ internal class ViewModelDependencyBinding(
         val edge = DependencyEdge(viewModel)
         dependencies[handle] = edge
         return {
-            propagatedOwners.toList().forEach { owner -> attachOwner(handle, edge, owner) }
+            propagatedOwners.values.toList().forEach { owner -> attachOwner(handle, edge, owner) }
         }
     }
 
@@ -47,7 +53,7 @@ internal class ViewModelDependencyBinding(
         viewModel: ViewModel,
     ): () -> Unit {
         val edge = dependencies.remove(handle)
-        val owners = propagatedOwners.toList()
+        val owners = propagatedOwners.values.toList()
         super.handleInstanceDetached(handle, viewModel)
         return {
             if (edge != null) owners.forEach { owner -> detachOwner(handle, edge, owner) }
@@ -109,24 +115,62 @@ internal class ViewModelDependencyBinding(
         }
     }
 
-    private fun syncOwners(currentOwners: List<ViewModelBinding>) {
+    private fun ownersChanged(
+        parentHandler: ViewModelBindingHandler,
+        revision: Long,
+        owner: ViewModelBinding?,
+        added: Boolean,
+    ) {
         if (dependencyDisposed) return
-        val removed = propagatedOwners.filter { owner -> currentOwners.none { it === owner } }
-        val added = currentOwners.filter { owner -> propagatedOwners.none { it === owner } }
+        val inStep = syncedRevision == revision - 1
+        // Record the revision before child hooks can reenter with a newer one.
+        syncedRevision = revision
+        when {
+            // A clear, or a change skipped by reentrancy, needs the full owner list.
+            owner == null || !inStep -> syncOwners(parentHandler.externalOwners)
+            owner.isDependencyBinding -> Unit
+            added -> addOwner(owner)
+            else -> removeOwner(owner)
+        }
+    }
+
+    private fun isPropagated(owner: ViewModelBinding): Boolean =
+        propagatedOwners[owner.id] === owner
+
+    private fun addOwner(owner: ViewModelBinding) {
+        if (owner.id in propagatedOwners) return
+        propagatedOwners[owner.id] = owner
+        attachToDependencies(owner)
+    }
+
+    private fun removeOwner(owner: ViewModelBinding) {
+        if (propagatedOwners.remove(owner.id) == null) return
+        detachFromDependencies(owner)
+    }
+
+    private fun syncOwners(currentOwners: List<ViewModelBinding>) {
+        val current = identitySet<ViewModelBinding>().apply { addAll(currentOwners) }
+        val removed = propagatedOwners.values.filter { it !in current }
+        val added = currentOwners.filterNot(::isPropagated)
 
         // Commit the projection before child hooks can reenter owner synchronization.
         propagatedOwners.clear()
-        propagatedOwners += currentOwners
-        removed.forEach { owner ->
-            for ((handle, edge) in dependencies.map { it.key to it.value }) {
-                if (propagatedOwners.any { it === owner }) break
-                detachOwner(handle, edge, owner)
-            }
+        currentOwners.forEach { propagatedOwners[it.id] = it }
+        removed.forEach(::detachFromDependencies)
+        added.forEach(::attachToDependencies)
+    }
+
+    private fun attachToDependencies(owner: ViewModelBinding) {
+        dependencies.map { it.key to it.value }.forEach { (handle, edge) ->
+            attachOwner(handle, edge, owner)
         }
-        added.forEach { owner ->
-            dependencies.map { it.key to it.value }.forEach { (handle, edge) ->
-                attachOwner(handle, edge, owner)
-            }
+    }
+
+    private fun detachFromDependencies(owner: ViewModelBinding) {
+        for ((handle, edge) in dependencies.map { it.key to it.value }) {
+            // A child hook may have propagated the same owner again.
+            if (isPropagated(owner)) break
+            detachOwner(handle, edge, owner)
         }
     }
 
@@ -138,7 +182,7 @@ internal class ViewModelDependencyBinding(
         if (
             dependencyDisposed || handle.isDisposed || handle.isRecycling ||
             edge.viewModel.isDisposed || owner.isDisposed ||
-            dependencies[handle] !== edge || propagatedOwners.none { it === owner }
+            dependencies[handle] !== edge || !isPropagated(owner)
         ) return
         handle.bindOwner(owner, source = edge)
     }
